@@ -40,6 +40,20 @@ function matchesAnyPattern(href) {
   });
 }
 
+// 같은 상품 페이지 안에서 옵션/기간 탭만 바꾸는 링크(예: 거래 내역의 "1개월/3개월" 탭)는
+// 경로(pathname)가 현재 페이지와 동일합니다. 그런 링크는 팝업 대상에서 제외합니다.
+function isDifferentPage(href) {
+  try {
+    return new URL(href, location.href).pathname !== location.pathname;
+  } catch {
+    return true;
+  }
+}
+
+function shouldPopup(href) {
+  return matchesAnyPattern(href) && isDifferentPage(href);
+}
+
 // 항상 같은 이름으로 창을 열면, 이미 그 이름의 창이 열려 있을 때
 // 새 창을 만들지 않고 기존 창의 내용만 바뀝니다 (브라우저 기본 동작).
 const POPUP_WINDOW_NAME = 'kream_helper_popup';
@@ -76,7 +90,7 @@ document.addEventListener(
       return;
     }
 
-    if (!matchesAnyPattern(href)) return;
+    if (!shouldPopup(href)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -100,7 +114,7 @@ function labelLinkIfMatch(link) {
   } catch {
     return;
   }
-  if (!matchesAnyPattern(href)) return;
+  if (!shouldPopup(href)) return;
 
   link.dataset[LABELED_FLAG] = 'true';
   const text = link.textContent.trim();
