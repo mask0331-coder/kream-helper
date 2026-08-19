@@ -236,15 +236,16 @@ function highlightTradeCounts(root) {
 
 highlightTradeCounts(document);
 
-// 사이트가 정확히 언제 다시 렌더링해서 style/class를 되돌리는지 예측하기 어려워서,
-// 검색 결과 페이지에서는 로드 후 약 10초간 0.5초마다 재적용해 깜빡임(적용→되돌아감)을 막습니다.
+// 사이트가 로드 직후 한 번 재렌더링하며 style/class를 되돌리는 것으로 보여서,
+// 검색 결과 페이지에서는 초반 1.5초 동안만 50ms 간격으로 촘촘히 재적용해 깜빡임을 거의 안 보이게 하고,
+// 그 이후로는(반복적으로 되돌아가진 않으므로) 재적용을 멈춥니다.
 if (location.pathname.startsWith('/search')) {
   let tradeReassertCount = 0;
   const tradeReassertTimer = setInterval(() => {
     highlightTradeCounts(document);
     tradeReassertCount += 1;
-    if (tradeReassertCount >= 20) clearInterval(tradeReassertTimer);
-  }, 500);
+    if (tradeReassertCount >= 30) clearInterval(tradeReassertTimer);
+  }, 50);
 }
 
 labelPopupLinks(document);
