@@ -174,6 +174,8 @@ function findLoadMoreButton(summary) {
   );
 }
 
+const TRADE_VOLUME_DEBUG = true; // 문제 해결되면 false로
+
 // "더보기"를 30일 이전 데이터가 나오거나 더 불러올 게 없을 때까지 반복 클릭합니다.
 async function loadTradeRowsWithin30Days(summary) {
   const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
@@ -184,6 +186,13 @@ async function loadTradeRowsWithin30Days(summary) {
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rows = getTradeVolumeRows(summary);
+    if (TRADE_VOLUME_DEBUG) {
+      console.log(
+        `[KH] attempt ${attempt}: rows=${rows.length}, lastDateText="${
+          rows.length ? getRowDateText(rows[rows.length - 1]) : ''
+        }"`
+      );
+    }
     if (rows.length === 0) {
       await sleep(300);
       continue;
@@ -191,28 +200,40 @@ async function loadTradeRowsWithin30Days(summary) {
 
     const lastRow = rows[rows.length - 1];
     const lastDate = parseTradeRowDate(getRowDateText(lastRow));
-    if (lastDate && lastDate.getTime() < cutoff) break; // 30일 이전까지 충분히 불러옴
+    if (lastDate && lastDate.getTime() < cutoff) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 30일 이전 도달');
+      break;
+    }
 
     let moreBtn = findLoadMoreButton(summary);
     if (!moreBtn) {
-      // 버튼이 아직 안 그려졌을 수 있으니 한 번 더 짧게 기다렸다 재확인
       await sleep(400);
       moreBtn = findLoadMoreButton(summary);
-      if (!moreBtn) break; // 그래도 없으면 정말 더 불러올 게 없는 것
+      if (!moreBtn) {
+        if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 더보기 버튼 못 찾음');
+        break;
+      }
     }
 
     const beforeCount = rows.length;
     moreBtn.click();
+    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 더보기 클릭 (before=${beforeCount})`);
 
     const waitStart = Date.now();
     while (Date.now() - waitStart < 3000) {
       await sleep(150);
       if (getTradeVolumeRows(summary).length > beforeCount) break;
     }
-    if (getTradeVolumeRows(summary).length === beforeCount) break; // 더 안 불러와짐
+    const afterCount = getTradeVolumeRows(summary).length;
+    if (afterCount === beforeCount) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 클릭해도 행 안 늘어남');
+      break;
+    }
   }
 
-  return getTradeVolumeRows(summary);
+  const finalRows = getTradeVolumeRows(summary);
+  if (TRADE_VOLUME_DEBUG) console.log(`[KH] loadTradeRowsWithin30Days 종료, 최종 rows=${finalRows.length}`);
+  return finalRows;
 }
 
 function countTradeRowsWithin30Days(rows) {
@@ -260,10 +281,17 @@ let isAutoPaginatingTradeVolume = false;
 let tradeVolumeRecomputeTimer = null;
 
 async function computeAndDisplayTradeVolume() {
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] computeAndDisplayTradeVolume 시작');
   const summary = findTradeHistoryDrawer();
-  if (!summary) return;
+  if (!summary) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 드로어 못 찾음');
+    return;
+  }
   const titleContainer = findTitleContainerInDrawer(summary);
-  if (!titleContainer) return;
+  if (!titleContainer) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: titleContainer 못 찾음');
+    return;
+  }
 
   const display = ensureTradeVolumeDisplay(titleContainer);
   display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
@@ -272,6 +300,7 @@ async function computeAndDisplayTradeVolume() {
   try {
     const rows = await loadTradeRowsWithin30Days(summary);
     const count = countTradeRowsWithin30Days(rows);
+    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 최종 count=${count}`);
     display.innerHTML = `최근 ${TRADE_VOLUME_DAYS}일 거래량 <b>${count.toLocaleString()}건</b>`;
   } catch (err) {
     console.warn('[Kream Helper] 거래량 계산 실패:', err);
@@ -283,6 +312,7 @@ async function computeAndDisplayTradeVolume() {
 
 function scheduleTradeVolumeRecompute() {
   if (isAutoPaginatingTradeVolume) return; // 우리가 만든 변화는 무시 (무한루프 방지)
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] scheduleTradeVolumeRecompute (400ms 뒤 실행 예정)');
   clearTimeout(tradeVolumeRecomputeTimer);
   tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
 }
