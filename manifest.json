@@ -3,11 +3,22 @@
   "name": "Kream Helper",
   "version": "0.1.0",
   "description": "kream.co.kr 이용 방식을 커스터마이징하는 개인용 확장 프로그램 (특정 링크 팝업으로 열기 등)",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["https://kream.co.kr/*"],
   "action": {
     "default_popup": "options.html",
     "default_title": "Kream Helper 설정"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "search-on-kream": {
+      "suggested_key": {
+        "default": "Ctrl+Q"
+      },
+      "description": "선택한 텍스트로 kream.co.kr 검색 (새 탭)"
+    }
   },
   "content_scripts": [
     {
