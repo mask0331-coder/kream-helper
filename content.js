@@ -40,15 +40,20 @@ function matchesAnyPattern(href) {
   });
 }
 
+// 항상 같은 이름으로 창을 열면, 이미 그 이름의 창이 열려 있을 때
+// 새 창을 만들지 않고 기존 창의 내용만 바뀝니다 (브라우저 기본 동작).
+const POPUP_WINDOW_NAME = 'kream_helper_popup';
+
 function openAsPopup(href) {
   const { width, height } = popupSize;
   const left = Math.max(0, Math.round((screen.width - width) / 2));
   const top = Math.max(0, Math.round((screen.height - height) / 2));
-  window.open(
+  const win = window.open(
     href,
-    '_blank',
+    POPUP_WINDOW_NAME,
     `popup=yes,width=${width},height=${height},left=${left},top=${top}`
   );
+  if (win) win.focus();
 }
 
 // SPA 라우터(예: Next.js)의 자체 클릭 핸들러보다 먼저 가로채기 위해
@@ -79,3 +84,46 @@ document.addEventListener(
   },
   true
 );
+
+// --- 팝업으로 열릴 링크에 "(팝업)" 표시 붙이기 ---
+// 사이트 자체 텍스트는 못 바꾸니, 렌더링된 링크의 textContent를 찾아서 덧붙입니다.
+// Vue가 나중에(예: 드로어를 열 때) 링크를 그려 넣으므로 MutationObserver로 감시합니다.
+const LABEL_SUFFIX = ' (팝업)';
+const LABELED_FLAG = 'kreamHelperLabeled';
+
+function labelLinkIfMatch(link) {
+  if (link.dataset[LABELED_FLAG]) return;
+
+  let href;
+  try {
+    href = new URL(link.href, location.href).href;
+  } catch {
+    return;
+  }
+  if (!matchesAnyPattern(href)) return;
+
+  link.dataset[LABELED_FLAG] = 'true';
+  const text = link.textContent.trim();
+  if (text && !text.endsWith(LABEL_SUFFIX.trim())) {
+    link.textContent = text + LABEL_SUFFIX;
+  }
+}
+
+function labelPopupLinks(root) {
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches('a[href]')) {
+    labelLinkIfMatch(root);
+  }
+  root.querySelectorAll?.('a[href]').forEach(labelLinkIfMatch);
+}
+
+labelPopupLinks(document);
+
+// Vue가 드로어 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) labelPopupLinks(node);
+    }
+  }
+});
+observer.observe(document.body, { childList: true, subtree: true });
