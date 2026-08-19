@@ -57,7 +57,7 @@ function createToolbar() {
   wrap.id = 'kream-helper-toolbar';
   Object.assign(wrap.style, {
     position: 'fixed',
-    top: '64px',
+    top: '32px',
     left: '50%',
     transform: 'translateX(-50%)',
     zIndex: '2147483647',
