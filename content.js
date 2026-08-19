@@ -5,17 +5,25 @@ const api = typeof chrome !== 'undefined' ? chrome : browser;
 
 const DEFAULT_PATTERNS = ['/products/'];
 const DEFAULT_POPUP_SIZE = { width: 480, height: 800 };
+// URL 패턴만으로는 검색 결과/카테고리의 모든 상품 카드 링크까지 다 걸려버려서
+// (실제로 사이트 렌더링이 깨지는 문제가 있었음), 링크 자체의 텍스트도 함께 확인합니다.
+// 비워두면(빈 배열) 텍스트 조건 없이 URL 패턴만으로 판단합니다.
+const DEFAULT_LINK_TEXTS = ['상품상세'];
 
 let patterns = DEFAULT_PATTERNS;
 let popupSize = DEFAULT_POPUP_SIZE;
+let linkTexts = DEFAULT_LINK_TEXTS;
 
 // 저장된 옵션 불러오기 (없으면 기본값 사용)
-api.storage.sync.get(['patterns', 'popupSize'], (result) => {
+api.storage.sync.get(['patterns', 'popupSize', 'linkTexts'], (result) => {
   if (Array.isArray(result.patterns) && result.patterns.length > 0) {
     patterns = result.patterns;
   }
   if (result.popupSize) {
     popupSize = result.popupSize;
+  }
+  if (Array.isArray(result.linkTexts)) {
+    linkTexts = result.linkTexts;
   }
 });
 
@@ -23,6 +31,7 @@ api.storage.sync.get(['patterns', 'popupSize'], (result) => {
 api.storage.onChanged.addListener((changes) => {
   if (changes.patterns) patterns = changes.patterns.newValue ?? DEFAULT_PATTERNS;
   if (changes.popupSize) popupSize = changes.popupSize.newValue ?? DEFAULT_POPUP_SIZE;
+  if (changes.linkTexts) linkTexts = changes.linkTexts.newValue ?? DEFAULT_LINK_TEXTS;
 });
 
 function matchesAnyPattern(href) {
@@ -50,8 +59,14 @@ function isDifferentPage(href) {
   }
 }
 
-function shouldPopup(href) {
-  return matchesAnyPattern(href) && isDifferentPage(href);
+function matchesLinkText(link) {
+  if (linkTexts.length === 0) return true; // 텍스트 조건 없음 = 모두 허용
+  const text = link.textContent.trim();
+  return linkTexts.some((t) => text === t || text.startsWith(t)); // 이미 "(팝업)"이 붙은 것도 허용
+}
+
+function shouldPopup(href, link) {
+  return matchesAnyPattern(href) && isDifferentPage(href) && matchesLinkText(link);
 }
 
 // 항상 같은 이름으로 창을 열면, 이미 그 이름의 창이 열려 있을 때
@@ -90,7 +105,7 @@ document.addEventListener(
       return;
     }
 
-    if (!shouldPopup(href)) return;
+    if (!shouldPopup(href, link)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -114,7 +129,7 @@ function labelLinkIfMatch(link) {
   } catch {
     return;
   }
-  if (!shouldPopup(href)) return;
+  if (!shouldPopup(href, link)) return;
 
   link.dataset[LABELED_FLAG] = 'true';
   const text = link.textContent.trim();

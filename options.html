@@ -64,6 +64,14 @@
   <label for="patterns">팝업으로 열 링크 패턴</label>
   <textarea id="patterns" placeholder="/products/&#10;/style/"></textarea>
 
+  <label for="linkTexts">링크 텍스트 조건 (선택)</label>
+  <textarea id="linkTexts" placeholder="상품상세"></textarea>
+  <p class="desc" style="margin-top: 4px;">
+    비워두면 URL 패턴에만 맞으면 동작합니다. 값을 넣으면, 위 URL 패턴 조건을 만족해도
+    <b>링크 텍스트가 이 목록 중 하나로 시작할 때만</b> 팝업으로 엽니다.
+    (검색 결과처럼 같은 URL 패턴을 쓰는 링크가 페이지에 너무 많을 때, 특정 링크만 골라내는 용도)
+  </p>
+
   <label>팝업 창 크기</label>
   <div class="size-row">
     <div>
