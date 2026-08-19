@@ -153,14 +153,15 @@ function parseTradeRowDate(text) {
 function getTradeVolumeRows(summary) {
   // 탭이 여러 개(체결 거래/판매 입찰/구매 입찰) 존재하므로, 지금 보이는 탭 안의 행만 가져옵니다.
   const activeTab = summary.querySelector('.tab_content.show') || summary;
-  return [...activeTab.querySelectorAll('.transaction_history_summary__content__item')];
+  return [...activeTab.querySelectorAll('.body_list')];
 }
 
-// 날짜 칸이 항상 3번째 자식이라는 가정이 깨질 수 있어서(구조가 살짝 다른 행이 있을 수도),
-// 행의 직계 자식들 중 날짜처럼 생긴 텍스트를 직접 찾습니다.
+// 행 하나 = <div class="body_list"><div class="list_txt">옵션</div><div class="list_txt">가격</div>
+//            <div class="list_txt is_active">날짜</div></div> (각 list_txt 안의 <span>에 실제 텍스트)
+// 몇 번째 list_txt가 날짜인지 가정하지 않고, 날짜처럼 생긴 텍스트를 직접 찾습니다.
 function getRowDateText(row) {
-  for (const child of row.children) {
-    const t = child.textContent.trim();
+  for (const span of row.querySelectorAll('.list_txt span')) {
+    const t = span.textContent.trim();
     if (/^\d+\s*(초|분|시간|일)\s*전$/.test(t) || /^방금/.test(t) || /^\d{2}\/\d{2}\/\d{2}$/.test(t)) {
       return t;
     }
@@ -168,9 +169,11 @@ function getRowDateText(row) {
   return '';
 }
 
-function findLoadMoreButton(summary) {
-  return [...summary.querySelectorAll('p, div, span, button, a')].find(
-    (e) => e.children.length === 0 && e.textContent.trim() === '거래 내역 더보기'
+// 이 버튼은 드로어의 DOM 안이 아니라 페이지의 다른 곳(모바일/데스크톱용이 따로 렌더링되는
+// 구조로 보임)에 있어서, 드로어로 범위를 좁히지 않고 페이지 전체에서 "실제로 보이는" 것만 찾습니다.
+function findLoadMoreButton() {
+  return [...document.querySelectorAll('p, div, span, button, a')].find(
+    (e) => e.children.length === 0 && e.textContent.trim() === '거래 내역 더보기' && isRendered(e)
   );
 }
 
@@ -205,10 +208,10 @@ async function loadTradeRowsWithin30Days(summary) {
       break;
     }
 
-    let moreBtn = findLoadMoreButton(summary);
+    let moreBtn = findLoadMoreButton();
     if (!moreBtn) {
       await sleep(400);
-      moreBtn = findLoadMoreButton(summary);
+      moreBtn = findLoadMoreButton();
       if (!moreBtn) {
         if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 더보기 버튼 못 찾음');
         break;
