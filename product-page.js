@@ -114,9 +114,11 @@ if (!document.getElementById('kream-helper-trade-volume-style')) {
   styleTag.id = 'kream-helper-trade-volume-style';
   styleTag.textContent = `
     .${TRADE_VOLUME_CLASS} {
-      margin-top: 4px;
-      font-size: 13px;
-      color: #666;
+      margin-left: auto;
+      padding-left: 10px;
+      font-size: 12px;
+      color: #888;
+      white-space: nowrap;
     }
     .${TRADE_VOLUME_CLASS} b {
       color: #e60000;
@@ -345,23 +347,32 @@ function scheduleTradeVolumeRecompute() {
   tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
 }
 
-// 진짜 드로어가 렌더링될 때까지 기다렸다가, 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
-function initTradeVolumeFeature() {
-  const summary = findTradeHistoryDrawer();
-  if (!summary) {
-    setTimeout(initTradeVolumeFeature, 500);
-    return;
-  }
+// 드로어를 닫았다 다시 열면 Vue가 이전 요소를 버리고 새로 만드는 것으로 보여서,
+// 한 번 찾은 드로어만 계속 감시하면 재생성됐을 때 못 따라갑니다. 그래서 document 전체를
+// (가볍게, class 속성 변화는 안 보고) 계속 지켜보다가, "지금 찾히는 진짜 드로어"가
+// 마지막으로 감시하던 것과 다르면 그쪽으로 감시 대상을 옮깁니다.
+let tradeVolumeDrawerObserver = null;
+let currentObservedDrawer = null;
 
-  const tradeVolumeObserver = new MutationObserver(scheduleTradeVolumeRecompute);
-  tradeVolumeObserver.observe(summary, {
+function ensureTradeVolumeObserverAttached() {
+  const drawer = findTradeHistoryDrawer();
+  if (!drawer || drawer === currentObservedDrawer) return;
+
+  tradeVolumeDrawerObserver?.disconnect();
+  currentObservedDrawer = drawer;
+  tradeVolumeDrawerObserver = new MutationObserver(scheduleTradeVolumeRecompute);
+  tradeVolumeDrawerObserver.observe(drawer, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['class'],
   });
 
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] 새 드로어 감시 시작');
   scheduleTradeVolumeRecompute();
 }
 
-initTradeVolumeFeature();
+const tradeVolumeBodyObserver = new MutationObserver(ensureTradeVolumeObserverAttached);
+tradeVolumeBodyObserver.observe(document.body, { childList: true, subtree: true });
+
+ensureTradeVolumeObserverAttached(); // 이미 열려있는 경우 대비 초기 1회 시도
