@@ -268,8 +268,24 @@ function isRendered(el) {
 
 const DRAWER_SELECTOR = '.product-transaction-history-drawer';
 
+// 같은 class를 쓰는 요소가 여러 개(숨겨진 것 포함) 있을 수 있어서, "화면에 실제로 크게
+// 보이는" 후보를 고릅니다 (진짜 열린 드로어는 화면의 상당 부분을 차지함).
 function findTradeHistoryDrawer() {
-  return [...document.querySelectorAll(DRAWER_SELECTOR)].find(isRendered) || null;
+  const candidates = [...document.querySelectorAll(DRAWER_SELECTOR)];
+  let best = null;
+  let bestArea = 0;
+  for (const el of candidates) {
+    const rect = el.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    if (TRADE_VOLUME_DEBUG) {
+      console.log(`[KH] drawer 후보: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`);
+    }
+    if (area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  }
+  return bestArea > 10000 ? best : null; // 최소 크기 미만이면 진짜 드로어가 아닌 것으로 취급
 }
 
 function findTitleContainerInDrawer(drawer) {
