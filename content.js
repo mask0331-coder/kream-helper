@@ -236,10 +236,21 @@ function highlightTradeCounts(root) {
 
 highlightTradeCounts(document);
 
-// 사이트가 로드 직후 딱 한 번만 재렌더링하며 style/class를 되돌리는 것으로 보여서,
-// 검색 결과 페이지에서는 150ms 뒤 딱 한 번만 재적용합니다.
+// 사이트가 되돌리는 타이밍이 고정돼있지 않아서(150ms 고정 재시도로는 못 맞추는 경우가 있었음),
+// "더 이상 새로 적용할 게 없는 상태"가 3번 연속될 때까지 확인하다가 알아서 멈춥니다
+// (안전장치로 최대 4초 후엔 무조건 멈춤).
 if (location.pathname.startsWith('/search')) {
-  setTimeout(() => highlightTradeCounts(document), 150);
+  let stableStreak = 0;
+  let ticks = 0;
+  const tradeReassertTimer = setInterval(() => {
+    const before = document.querySelectorAll('.' + TRADE_HIGHLIGHT_CLASS).length;
+    highlightTradeCounts(document);
+    const after = document.querySelectorAll('.' + TRADE_HIGHLIGHT_CLASS).length;
+
+    stableStreak = before === after && after > 0 ? stableStreak + 1 : 0;
+    ticks += 1;
+    if (stableStreak >= 3 || ticks >= 40) clearInterval(tradeReassertTimer);
+  }, 100);
 }
 
 labelPopupLinks(document);
