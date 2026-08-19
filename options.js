@@ -4,25 +4,29 @@ const api = typeof chrome !== 'undefined' ? chrome : browser;
 const DEFAULT_PATTERNS = ['/products/'];
 const DEFAULT_POPUP_SIZE = { width: 480, height: 800 };
 const DEFAULT_LINK_TEXTS = ['상품상세'];
+const DEFAULT_LINK_CLASSES = ['product_card'];
 
 const patternsEl = document.getElementById('patterns');
 const linkTextsEl = document.getElementById('linkTexts');
+const linkClassesEl = document.getElementById('linkClasses');
 const widthEl = document.getElementById('width');
 const heightEl = document.getElementById('height');
 const saveBtn = document.getElementById('save');
 const statusEl = document.getElementById('status');
 
 function load() {
-  api.storage.sync.get(['patterns', 'popupSize', 'linkTexts'], (result) => {
+  api.storage.sync.get(['patterns', 'popupSize', 'linkTexts', 'linkClasses'], (result) => {
     const patterns = Array.isArray(result.patterns) && result.patterns.length > 0
       ? result.patterns
       : DEFAULT_PATTERNS;
     const size = result.popupSize || DEFAULT_POPUP_SIZE;
-    // linkTexts는 빈 배열("텍스트 조건 없음")도 유효한 저장값이라 기본값으로 안 덮어씀
+    // linkTexts/linkClasses는 빈 배열("조건 없음")도 유효한 저장값이라 기본값으로 안 덮어씀
     const linkTexts = Array.isArray(result.linkTexts) ? result.linkTexts : DEFAULT_LINK_TEXTS;
+    const linkClasses = Array.isArray(result.linkClasses) ? result.linkClasses : DEFAULT_LINK_CLASSES;
 
     patternsEl.value = patterns.join('\n');
     linkTextsEl.value = linkTexts.join('\n');
+    linkClassesEl.value = linkClasses.join('\n');
     widthEl.value = size.width;
     heightEl.value = size.height;
   });
@@ -39,13 +43,18 @@ function save() {
     .map((line) => line.trim())
     .filter(Boolean);
 
+  const linkClasses = linkClassesEl.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
   const popupSize = {
     width: Number(widthEl.value) || DEFAULT_POPUP_SIZE.width,
     height: Number(heightEl.value) || DEFAULT_POPUP_SIZE.height,
   };
 
   api.storage.sync.set(
-    { patterns: patterns.length > 0 ? patterns : DEFAULT_PATTERNS, linkTexts, popupSize },
+    { patterns: patterns.length > 0 ? patterns : DEFAULT_PATTERNS, linkTexts, linkClasses, popupSize },
     () => {
       statusEl.textContent = '저장됨';
       setTimeout(() => (statusEl.textContent = ''), 1500);

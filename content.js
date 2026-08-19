@@ -9,13 +9,17 @@ const DEFAULT_POPUP_SIZE = { width: 480, height: 800 };
 // (실제로 사이트 렌더링이 깨지는 문제가 있었음), 링크 자체의 텍스트도 함께 확인합니다.
 // 비워두면(빈 배열) 텍스트 조건 없이 URL 패턴만으로 판단합니다.
 const DEFAULT_LINK_TEXTS = ['상품상세'];
+// 검색 결과 카드처럼 텍스트가 상품마다 달라 텍스트로는 못 고르는 링크는
+// class 이름으로 골라냅니다 (예: 검색 결과 카드의 "product_card").
+const DEFAULT_LINK_CLASSES = ['product_card'];
 
 let patterns = DEFAULT_PATTERNS;
 let popupSize = DEFAULT_POPUP_SIZE;
 let linkTexts = DEFAULT_LINK_TEXTS;
+let linkClasses = DEFAULT_LINK_CLASSES;
 
 // 저장된 옵션 불러오기 (없으면 기본값 사용)
-api.storage.sync.get(['patterns', 'popupSize', 'linkTexts'], (result) => {
+api.storage.sync.get(['patterns', 'popupSize', 'linkTexts', 'linkClasses'], (result) => {
   if (Array.isArray(result.patterns) && result.patterns.length > 0) {
     patterns = result.patterns;
   }
@@ -25,6 +29,9 @@ api.storage.sync.get(['patterns', 'popupSize', 'linkTexts'], (result) => {
   if (Array.isArray(result.linkTexts)) {
     linkTexts = result.linkTexts;
   }
+  if (Array.isArray(result.linkClasses)) {
+    linkClasses = result.linkClasses;
+  }
 });
 
 // 옵션 변경 시 실시간 반영
@@ -32,6 +39,7 @@ api.storage.onChanged.addListener((changes) => {
   if (changes.patterns) patterns = changes.patterns.newValue ?? DEFAULT_PATTERNS;
   if (changes.popupSize) popupSize = changes.popupSize.newValue ?? DEFAULT_POPUP_SIZE;
   if (changes.linkTexts) linkTexts = changes.linkTexts.newValue ?? DEFAULT_LINK_TEXTS;
+  if (changes.linkClasses) linkClasses = changes.linkClasses.newValue ?? DEFAULT_LINK_CLASSES;
 });
 
 function matchesAnyPattern(href) {
@@ -60,12 +68,28 @@ function isDifferentPage(href) {
 }
 
 function matchesLinkText(link) {
-  if (linkTexts.length === 0) return true; // 텍스트 조건 없음 = 모두 허용
+  if (linkTexts.length === 0) return false;
   const text = link.textContent.trim();
   return linkTexts.some((t) => text === t || text.startsWith(t)); // 이미 "(팝업)"이 붙은 것도 허용
 }
 
+function matchesLinkClass(link) {
+  if (linkClasses.length === 0) return false;
+  return linkClasses.some((c) => link.classList.contains(c));
+}
+
+// 클릭을 팝업으로 가로챌지: URL 조건 + (텍스트 조건 또는 class 조건 중 하나라도 매칭)
+// 텍스트 조건, class 조건이 둘 다 비어있으면 URL 패턴만으로 판단합니다 (범위가 넓어져 위험할 수 있음).
 function shouldPopup(href, link) {
+  if (!matchesAnyPattern(href) || !isDifferentPage(href)) return false;
+  if (linkTexts.length === 0 && linkClasses.length === 0) return true;
+  return matchesLinkText(link) || matchesLinkClass(link);
+}
+
+// "(팝업)" 텍스트 라벨은 텍스트 조건에 맞는 링크에만 붙입니다.
+// class 조건으로 잡히는 링크(예: 이미지가 들어있는 검색 결과 카드)에 textContent를
+// 그대로 덮어쓰면 이미지 등 자식 요소가 통째로 사라지므로 라벨링 대상에서 제외합니다.
+function shouldLabel(href, link) {
   return matchesAnyPattern(href) && isDifferentPage(href) && matchesLinkText(link);
 }
 
@@ -129,7 +153,7 @@ function labelLinkIfMatch(link) {
   } catch {
     return;
   }
-  if (!shouldPopup(href, link)) return;
+  if (!shouldLabel(href, link)) return;
 
   link.dataset[LABELED_FLAG] = 'true';
   const text = link.textContent.trim();
