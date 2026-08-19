@@ -212,14 +212,30 @@ function ensureTradeVolumeDisplay(titleContainer) {
   return el;
 }
 
+// 페이지에 "거래 및 입찰 내역" 관련 구조가 두 군데(요약 표시 + "더보기"로 열리는 상세 패널)
+// 비슷하게 존재해서, .transaction_history_summary만으로 찾으면 엉뚱한 쪽을 잡을 수 있습니다.
+// "최근 시세" 표시가 있는 .sales_title_container를 먼저 찾고, 그 조상에서 진짜 패널을 찾습니다.
+function findVisibleTitleContainer() {
+  const containers = [...document.querySelectorAll('.sales_title_container')];
+  return containers.find((el) => el.offsetParent !== null) || containers[0] || null;
+}
+
+function findSummaryForTitleContainer(titleContainer) {
+  return (
+    titleContainer?.closest('.transaction_history_summary') ||
+    document.querySelector('.transaction_history_summary')
+  );
+}
+
 let isAutoPaginatingTradeVolume = false;
 let tradeVolumeRecomputeTimer = null;
 
 async function computeAndDisplayTradeVolume() {
-  const summary = document.querySelector('.transaction_history_summary');
-  const titleContainer = document.querySelector('.sales_title_container');
-  if (!summary || !titleContainer) return;
-  if (summary.offsetParent === null) return; // 패널이 안 열려있으면 건너뜀
+  const titleContainer = findVisibleTitleContainer();
+  if (!titleContainer) return;
+  const summary = findSummaryForTitleContainer(titleContainer);
+  if (!summary) return;
+  if (titleContainer.offsetParent === null) return; // 패널이 안 열려있으면 건너뜀
 
   const display = ensureTradeVolumeDisplay(titleContainer);
   display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
@@ -243,9 +259,11 @@ function scheduleTradeVolumeRecompute() {
   tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
 }
 
-// summary 패널이 렌더링될 때까지 기다렸다가, 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
+// 진짜 패널(.sales_title_container를 담고 있는 쪽)이 렌더링될 때까지 기다렸다가,
+// 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
 function initTradeVolumeFeature() {
-  const summary = document.querySelector('.transaction_history_summary');
+  const titleContainer = findVisibleTitleContainer();
+  const summary = titleContainer && findSummaryForTitleContainer(titleContainer);
   if (!summary) {
     setTimeout(initTradeVolumeFeature, 500);
     return;
