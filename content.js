@@ -175,15 +175,28 @@ function labelPopupLinks(root) {
 // (.text-lookup 클래스 자체는 사이트 전체에서 재사용되는 범용 클래스라 그것만으론 못 씀)
 const TRADE_COUNT_FLAG = 'kreamHelperTradeStyled';
 const TRADE_TEXT_PATTERN = /거래\s*[\d,.]+[만천억]?$/;
+const TRADE_HIGHLIGHT_CLASS = 'kream-helper-trade-highlight';
+
+// Vue가 이 요소들의 style 속성을 계속 관리하고 있어서(재렌더링될 때마다 리셋됨),
+// 인라인 style을 직접 건드리는 대신 class + !important 스타일시트로 적용합니다.
+// 이러면 Vue가 인라인 style을 되돌려도 저희 CSS 규칙이 이깁니다.
+if (!document.getElementById('kream-helper-trade-style')) {
+  const styleTag = document.createElement('style');
+  styleTag.id = 'kream-helper-trade-style';
+  styleTag.textContent = `
+    .${TRADE_HIGHLIGHT_CLASS} {
+      color: #e60000 !important;
+      font-weight: 700 !important;
+      font-size: 1.3em !important;
+      line-height: 1 !important;
+      display: inline-block !important;
+    }
+  `;
+  document.head.appendChild(styleTag);
+}
 
 function applyTradeStyle(el) {
-  el.style.color = '#e60000';
-  el.style.fontWeight = '700';
-  // 부모 박스가 높이 제한(overflow: hidden)이라 2배는 위아래가 잘림 —
-  // 줄 높이를 좁혀 잘리지 않는 선에서 최대한 키움
-  el.style.fontSize = '1.3em';
-  el.style.lineHeight = '1';
-  el.style.display = 'inline-block';
+  el.classList.add(TRADE_HIGHLIGHT_CLASS);
 }
 
 function highlightTradeCount(p) {
