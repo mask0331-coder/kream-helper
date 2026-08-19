@@ -185,7 +185,12 @@ function highlightTradeCount(p) {
 
   p.dataset[TRADE_COUNT_FLAG] = 'true';
   span.style.color = '#e60000';
-  span.style.fontSize = '2em';
+  span.style.fontWeight = '700';
+  // 부모 박스가 높이 제한(overflow: hidden)이라 2배는 위아래가 잘림 —
+  // 줄 높이를 좁혀 잘리지 않는 선에서 최대한 키움
+  span.style.fontSize = '1.3em';
+  span.style.lineHeight = '1';
+  span.style.display = 'inline-block';
 }
 
 function highlightTradeCounts(root) {
