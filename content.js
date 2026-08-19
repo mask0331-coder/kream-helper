@@ -176,21 +176,38 @@ function labelPopupLinks(root) {
 const TRADE_COUNT_FLAG = 'kreamHelperTradeStyled';
 const TRADE_TEXT_PATTERN = /거래\s*[\d,.]+[만천억]?$/;
 
+function applyTradeStyle(el) {
+  el.style.color = '#e60000';
+  el.style.fontWeight = '700';
+  // 부모 박스가 높이 제한(overflow: hidden)이라 2배는 위아래가 잘림 —
+  // 줄 높이를 좁혀 잘리지 않는 선에서 최대한 키움
+  el.style.fontSize = '1.3em';
+  el.style.lineHeight = '1';
+  el.style.display = 'inline-block';
+}
+
 function highlightTradeCount(p) {
   if (p.dataset[TRADE_COUNT_FLAG]) return;
   if (!TRADE_TEXT_PATTERN.test(p.textContent.trim())) return;
 
-  const span = p.querySelector('span.text-lookup');
-  if (!span) return;
+  const numberSpan = p.querySelector('span.text-lookup');
+  if (!numberSpan) return;
 
   p.dataset[TRADE_COUNT_FLAG] = 'true';
-  span.style.color = '#e60000';
-  span.style.fontWeight = '700';
-  // 부모 박스가 높이 제한(overflow: hidden)이라 2배는 위아래가 잘림 —
-  // 줄 높이를 좁혀 잘리지 않는 선에서 최대한 키움
-  span.style.fontSize = '1.3em';
-  span.style.lineHeight = '1';
-  span.style.display = 'inline-block';
+  applyTradeStyle(numberSpan);
+
+  // "거래"라는 라벨은 별도 태그 없이 그냥 텍스트라서, 그 부분만 잘라내
+  // <span>으로 감싼 뒤 숫자와 같은 스타일을 입힙니다.
+  const textNode = [...p.childNodes].find(
+    (n) => n.nodeType === Node.TEXT_NODE && n.textContent.includes('거래')
+  );
+  if (textNode) {
+    const [before, after] = textNode.textContent.split('거래');
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = '거래';
+    applyTradeStyle(labelSpan);
+    textNode.replaceWith(document.createTextNode(before), labelSpan, document.createTextNode(after));
+  }
 }
 
 function highlightTradeCounts(root) {
