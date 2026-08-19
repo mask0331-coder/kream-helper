@@ -173,7 +173,6 @@ function labelPopupLinks(root) {
 // "거래" 숫자만 <p> 안에 <span class="text-lookup">숫자</span>로 한 번 더 감싸져 있고
 // "관심"/"리뷰" 숫자는 안 그래서, 그 구조 차이로 정확히 골라냅니다.
 // (.text-lookup 클래스 자체는 사이트 전체에서 재사용되는 범용 클래스라 그것만으론 못 씀)
-const TRADE_COUNT_FLAG = 'kreamHelperTradeStyled';
 const TRADE_TEXT_PATTERN = /거래\s*[\d,.]+[만천억]?$/;
 const TRADE_HIGHLIGHT_CLASS = 'kream-helper-trade-highlight';
 
@@ -199,18 +198,16 @@ function applyTradeStyle(el) {
   el.classList.add(TRADE_HIGHLIGHT_CLASS);
 }
 
+// 사이트가 나중에 재렌더링하면서 저희가 붙인 class를 지울 수도 있어서, 이 함수는
+// 여러 번 반복 호출해도 안전(idempotent)하게 만들어 놨습니다 — 아래 주기적 재적용에서 사용.
 function highlightTradeCount(p) {
-  if (p.dataset[TRADE_COUNT_FLAG]) return;
   if (!TRADE_TEXT_PATTERN.test(p.textContent.trim())) return;
 
   const numberSpan = p.querySelector('span.text-lookup');
   if (!numberSpan) return;
-
-  p.dataset[TRADE_COUNT_FLAG] = 'true';
   applyTradeStyle(numberSpan);
 
-  // "거래"라는 라벨은 별도 태그 없이 그냥 텍스트라서, 그 부분만 잘라내
-  // <span>으로 감싼 뒤 숫자와 같은 스타일을 입힙니다.
+  // "거래"라는 라벨은 별도 태그 없이 그냥 텍스트라서, 처음 한 번만 잘라내 <span>으로 감쌉니다.
   const textNode = [...p.childNodes].find(
     (n) => n.nodeType === Node.TEXT_NODE && n.textContent.includes('거래')
   );
@@ -220,6 +217,10 @@ function highlightTradeCount(p) {
     labelSpan.textContent = '거래';
     applyTradeStyle(labelSpan);
     textNode.replaceWith(document.createTextNode(before), labelSpan, document.createTextNode(after));
+  } else {
+    // 이미 감싸놓은 상태 - class만 사라졌을 수 있으니 다시 붙여줌
+    const existingLabel = [...p.querySelectorAll('span')].find((s) => s.textContent.trim() === '거래');
+    if (existingLabel) applyTradeStyle(existingLabel);
   }
 }
 
@@ -234,6 +235,17 @@ function highlightTradeCounts(root) {
 }
 
 highlightTradeCounts(document);
+
+// 사이트가 정확히 언제 다시 렌더링해서 style/class를 되돌리는지 예측하기 어려워서,
+// 검색 결과 페이지에서는 로드 후 약 10초간 0.5초마다 재적용해 깜빡임(적용→되돌아감)을 막습니다.
+if (location.pathname.startsWith('/search')) {
+  let tradeReassertCount = 0;
+  const tradeReassertTimer = setInterval(() => {
+    highlightTradeCounts(document);
+    tradeReassertCount += 1;
+    if (tradeReassertCount >= 20) clearInterval(tradeReassertTimer);
+  }, 500);
+}
 
 labelPopupLinks(document);
 
