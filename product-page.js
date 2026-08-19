@@ -329,7 +329,12 @@ async function computeAndDisplayTradeVolume() {
     console.warn('[Kream Helper] 거래량 계산 실패:', err);
     display.textContent = '거래량 계산 실패';
   } finally {
-    isAutoPaginatingTradeVolume = false;
+    // display.innerHTML 갱신 자체가 감시 중인 DOM 변화로 잡혀서 바로 재계산이 또 예약되는
+    // 무한루프가 있었습니다. MutationObserver 콜백(마이크로태스크)이 그 변화를 처리하고 지나갈
+    // 시간을 벌어주기 위해, 플래그를 살짝 늦게(다음 매크로태스크에서) 내립니다.
+    setTimeout(() => {
+      isAutoPaginatingTradeVolume = false;
+    }, 50);
   }
 }
 
