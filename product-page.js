@@ -156,6 +156,18 @@ function getTradeVolumeRows(summary) {
   return [...activeTab.querySelectorAll('.transaction_history_summary__content__item')];
 }
 
+// 날짜 칸이 항상 3번째 자식이라는 가정이 깨질 수 있어서(구조가 살짝 다른 행이 있을 수도),
+// 행의 직계 자식들 중 날짜처럼 생긴 텍스트를 직접 찾습니다.
+function getRowDateText(row) {
+  for (const child of row.children) {
+    const t = child.textContent.trim();
+    if (/^\d+\s*(초|분|시간|일)\s*전$/.test(t) || /^방금/.test(t) || /^\d{2}\/\d{2}\/\d{2}$/.test(t)) {
+      return t;
+    }
+  }
+  return '';
+}
+
 function findLoadMoreButton(summary) {
   return [...summary.querySelectorAll('p, div, span, button, a')].find(
     (e) => e.children.length === 0 && e.textContent.trim() === '거래 내역 더보기'
@@ -167,16 +179,27 @@ async function loadTradeRowsWithin30Days(summary) {
   const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
   const maxAttempts = 60;
 
+  // 패널이 막 열린 직후엔 사이트 자체 데이터 로딩이 아직 안 끝났을 수 있어 살짝 대기 후 시작
+  await sleep(400);
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rows = getTradeVolumeRows(summary);
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      await sleep(300);
+      continue;
+    }
 
     const lastRow = rows[rows.length - 1];
-    const lastDate = parseTradeRowDate(lastRow.children[2]?.textContent || '');
+    const lastDate = parseTradeRowDate(getRowDateText(lastRow));
     if (lastDate && lastDate.getTime() < cutoff) break; // 30일 이전까지 충분히 불러옴
 
-    const moreBtn = findLoadMoreButton(summary);
-    if (!moreBtn) break; // 더 불러올 게 없음
+    let moreBtn = findLoadMoreButton(summary);
+    if (!moreBtn) {
+      // 버튼이 아직 안 그려졌을 수 있으니 한 번 더 짧게 기다렸다 재확인
+      await sleep(400);
+      moreBtn = findLoadMoreButton(summary);
+      if (!moreBtn) break; // 그래도 없으면 정말 더 불러올 게 없는 것
+    }
 
     const beforeCount = rows.length;
     moreBtn.click();
@@ -196,7 +219,7 @@ function countTradeRowsWithin30Days(rows) {
   const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
   let count = 0;
   for (const row of rows) {
-    const date = parseTradeRowDate(row.children[2]?.textContent || '');
+    const date = parseTradeRowDate(getRowDateText(row));
     if (date && date.getTime() >= cutoff) count += 1;
   }
   return count;
