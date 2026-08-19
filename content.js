@@ -211,6 +211,9 @@ function highlightTradeCount(p) {
 }
 
 function highlightTradeCounts(root) {
+  // 검색 결과 페이지에서만 동작 (다른 페이지에도 "거래" 숫자가 있을 수 있어서 범위 한정)
+  if (!location.pathname.startsWith('/search')) return;
+
   if (root.nodeType === Node.ELEMENT_NODE && root.matches('p.text-lookup')) {
     highlightTradeCount(root);
   }
