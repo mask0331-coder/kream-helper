@@ -238,9 +238,29 @@ function ensureTradeVolumeDisplay(titleContainer) {
 // 페이지에 "거래 및 입찰 내역" 관련 구조가 두 군데(요약 표시 + "더보기"로 열리는 상세 패널)
 // 비슷하게 존재해서, .transaction_history_summary만으로 찾으면 엉뚱한 쪽을 잡을 수 있습니다.
 // "최근 시세" 표시가 있는 .sales_title_container를 먼저 찾고, 그 조상에서 진짜 패널을 찾습니다.
+//
+// 주의: 이 패널은 position: fixed라서 offsetParent가 항상 null입니다(스펙상 원래 그럼) —
+// offsetParent로 "보이는지"를 판단하면 안 되고, getClientRects()로 확인해야 합니다.
+function isRendered(el) {
+  return !!el && el.getClientRects().length > 0;
+}
+
 function findVisibleTitleContainer() {
-  const containers = [...document.querySelectorAll('.sales_title_container')];
-  return containers.find((el) => el.offsetParent !== null) || containers[0] || null;
+  const containers = [...document.querySelectorAll('.sales_title_container')].filter(isRendered);
+  if (containers.length <= 1) return containers[0] || null;
+
+  // 후보가 여러 개면, 거래 행이 더 많이 들어있는 쪽(진짜 상세 패널)을 고릅니다.
+  let best = containers[0];
+  let bestRowCount = -1;
+  for (const container of containers) {
+    const summary = container.closest('.transaction_history_summary');
+    const rowCount = summary?.querySelectorAll('.transaction_history_summary__content__item').length ?? 0;
+    if (rowCount > bestRowCount) {
+      best = container;
+      bestRowCount = rowCount;
+    }
+  }
+  return best;
 }
 
 function findSummaryForTitleContainer(titleContainer) {
@@ -258,7 +278,7 @@ async function computeAndDisplayTradeVolume() {
   if (!titleContainer) return;
   const summary = findSummaryForTitleContainer(titleContainer);
   if (!summary) return;
-  if (titleContainer.offsetParent === null) return; // 패널이 안 열려있으면 건너뜀
+  if (!isRendered(titleContainer)) return; // 패널이 안 열려있으면 건너뜀
 
   const display = ensureTradeVolumeDisplay(titleContainer);
   display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
