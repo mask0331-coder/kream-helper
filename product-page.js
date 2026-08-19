@@ -151,8 +151,12 @@ function parseTradeRowDate(text) {
 }
 
 function getTradeVolumeRows(summary) {
-  // 탭이 여러 개(체결 거래/판매 입찰/구매 입찰) 존재하므로, 지금 보이는 탭 안의 행만 가져옵니다.
-  const activeTab = summary.querySelector('.tab_content.show') || summary;
+  // 이 패널엔 "탭"이 두 종류입니다: 기간 탭(1개월/3개월/.../전체, 차트용)과
+  // 체결거래/판매입찰/구매입찰 탭(행 목록용) — 둘 다 같은 .tab_content.show 패턴을 써서,
+  // 첫 번째로 찾히는 것만 쓰면 차트 쪽(행이 없는 쪽)을 잘못 짚을 수 있습니다.
+  // 그래서 .tab_content.show 후보들 중 실제로 .body_list를 담고 있는 것을 고릅니다.
+  const tabPanes = [...summary.querySelectorAll('.tab_content.show')];
+  const activeTab = tabPanes.find((t) => t.querySelector('.body_list')) || summary;
   return [...activeTab.querySelectorAll('.body_list')];
 }
 
