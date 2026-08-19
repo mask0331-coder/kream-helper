@@ -5,6 +5,10 @@
   "description": "kream.co.kr 이용 방식을 커스터마이징하는 개인용 확장 프로그램 (특정 링크 팝업으로 열기 등)",
   "permissions": ["storage"],
   "host_permissions": ["https://kream.co.kr/*"],
+  "action": {
+    "default_popup": "options.html",
+    "default_title": "Kream Helper 설정"
+  },
   "content_scripts": [
     {
       "matches": ["https://kream.co.kr/*"],
