@@ -57,11 +57,12 @@ function createToolbar() {
   wrap.id = 'kream-helper-toolbar';
   Object.assign(wrap.style, {
     position: 'fixed',
-    right: '16px',
-    bottom: '16px',
+    top: '64px',
+    left: '50%',
+    transform: 'translateX(-50%)',
     zIndex: '2147483647',
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     gap: '6px',
     fontFamily: '-apple-system, "Segoe UI", sans-serif',
   });
