@@ -169,13 +169,43 @@ function labelPopupLinks(root) {
   root.querySelectorAll?.('a[href]').forEach(labelLinkIfMatch);
 }
 
+// --- 상품 카드의 "거래" 숫자 강조 (빨간색 + 2배 크기) ---
+// "거래" 숫자만 <p> 안에 <span class="text-lookup">숫자</span>로 한 번 더 감싸져 있고
+// "관심"/"리뷰" 숫자는 안 그래서, 그 구조 차이로 정확히 골라냅니다.
+// (.text-lookup 클래스 자체는 사이트 전체에서 재사용되는 범용 클래스라 그것만으론 못 씀)
+const TRADE_COUNT_FLAG = 'kreamHelperTradeStyled';
+const TRADE_TEXT_PATTERN = /거래\s*[\d,.]+[만천억]?$/;
+
+function highlightTradeCount(p) {
+  if (p.dataset[TRADE_COUNT_FLAG]) return;
+  if (!TRADE_TEXT_PATTERN.test(p.textContent.trim())) return;
+
+  const span = p.querySelector('span.text-lookup');
+  if (!span) return;
+
+  p.dataset[TRADE_COUNT_FLAG] = 'true';
+  span.style.color = '#e60000';
+  span.style.fontSize = '2em';
+}
+
+function highlightTradeCounts(root) {
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches('p.text-lookup')) {
+    highlightTradeCount(root);
+  }
+  root.querySelectorAll?.('p.text-lookup').forEach(highlightTradeCount);
+}
+
+highlightTradeCounts(document);
+
 labelPopupLinks(document);
 
-// Vue가 드로어 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
+// Vue가 드로어/카드 목록 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
 const observer = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     for (const node of mutation.addedNodes) {
-      if (node.nodeType === Node.ELEMENT_NODE) labelPopupLinks(node);
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      labelPopupLinks(node);
+      highlightTradeCounts(node);
     }
   }
 });
