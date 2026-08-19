@@ -235,8 +235,7 @@ function ensureTradeVolumeDisplay(titleContainer) {
   return el;
 }
 
-// 페이지에 "거래 및 입찰 내역" 관련 구조가 두 군데(요약 표시 + "더보기"로 열리는 상세 패널)
-// 비슷하게 존재해서, .transaction_history_summary만으로 찾으면 엉뚱한 쪽을 잡을 수 있습니다.
+// 페이지 여기저기(유사 상품 등)에 비슷한 거래 내역 위젯이 여러 개 있을 수 있어서,
 // "최근 시세" 표시가 있는 .sales_title_container를 먼저 찾고, 그 조상에서 진짜 패널을 찾습니다.
 //
 // 주의: 이 패널은 position: fixed라서 offsetParent가 항상 null입니다(스펙상 원래 그럼) —
@@ -244,6 +243,10 @@ function ensureTradeVolumeDisplay(titleContainer) {
 function isRendered(el) {
   return !!el && el.getClientRects().length > 0;
 }
+
+// 실제 바깥 컨테이너는 .transaction_history_summary가 아니라
+// section.product-transaction-history-drawer 였습니다 (DOM 재확인으로 정정).
+const DRAWER_SELECTOR = '.product-transaction-history-drawer';
 
 function findVisibleTitleContainer() {
   const containers = [...document.querySelectorAll('.sales_title_container')].filter(isRendered);
@@ -253,8 +256,8 @@ function findVisibleTitleContainer() {
   let best = containers[0];
   let bestRowCount = -1;
   for (const container of containers) {
-    const summary = container.closest('.transaction_history_summary');
-    const rowCount = summary?.querySelectorAll('.transaction_history_summary__content__item').length ?? 0;
+    const drawer = container.closest(DRAWER_SELECTOR);
+    const rowCount = drawer?.querySelectorAll('.transaction_history_summary__content__item').length ?? 0;
     if (rowCount > bestRowCount) {
       best = container;
       bestRowCount = rowCount;
@@ -264,10 +267,7 @@ function findVisibleTitleContainer() {
 }
 
 function findSummaryForTitleContainer(titleContainer) {
-  return (
-    titleContainer?.closest('.transaction_history_summary') ||
-    document.querySelector('.transaction_history_summary')
-  );
+  return titleContainer?.closest(DRAWER_SELECTOR) || document.querySelector(DRAWER_SELECTOR);
 }
 
 let isAutoPaginatingTradeVolume = false;
