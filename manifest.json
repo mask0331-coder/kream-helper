@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Kream Helper",
+  "version": "0.1.0",
+  "description": "kream.co.kr 이용 방식을 커스터마이징하는 개인용 확장 프로그램 (특정 링크 팝업으로 열기 등)",
+  "permissions": ["storage"],
+  "host_permissions": ["https://kream.co.kr/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://kream.co.kr/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}

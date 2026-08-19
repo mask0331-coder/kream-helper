@@ -1,0 +1,38 @@
+# Kream Helper
+
+kream.co.kr 이용 방식을 커스터마이징하는 개인용 확장 프로그램.
+Windows + Chrome, macOS + Safari 양쪽에서 동일한 소스로 사용하는 것을 목표로 합니다.
+
+## 현재 기능
+- 설정에서 지정한 URL 패턴과 일치하는 링크를 클릭하면, 페이지 이동 대신 **팝업 창**으로 엽니다.
+- 기본 패턴: `/products/` (상품 상세 링크)
+
+## 설치 (개발자 모드)
+1. `chrome://extensions` 접속
+2. 우측 상단 **개발자 모드** 켜기
+3. **압축해제된 확장 프로그램을 로드합니다** 클릭 → 이 폴더(`kream-helper`) 선택
+4. kream.co.kr 접속 후 상품 링크 클릭해서 팝업으로 뜨는지 확인
+
+## 설정 변경
+확장 프로그램 아이콘 우클릭 → **옵션** (또는 `chrome://extensions` → Kream Helper → 세부정보 → 확장 프로그램 옵션)
+- 팝업으로 열 링크 패턴 (줄바꿈으로 여러 개 추가, `/정규식/` 형식 지원)
+- 팝업 창 크기
+
+## 코드 수정 후 반영
+`chrome://extensions`에서 Kream Helper 카드의 새로고침(⟳) 버튼 클릭 → kream.co.kr 페이지도 새로고침
+
+## Safari(Mac)에서 사용하기
+이 저장소를 Mac에 clone한 뒤:
+
+```bash
+xcrun safari-web-extension-converter /path/to/kream-helper
+```
+
+으로 Xcode 프로젝트를 생성하고, Xcode에서 빌드/실행 → Safari 환경설정 → 확장 프로그램에서 활성화합니다.
+Xcode가 생성하는 프로젝트 파일은 `.gitignore`로 제외되어 있으니, 코드(`content.js`, `options.*`, `manifest.json`)를
+수정할 때마다 이 저장소에만 커밋하고 Mac에서는 `git pull` 후 변환 명령을 다시 돌리면 됩니다.
+
+## 다음에 추가하면 좋을 것들
+- 특정 요소 숨기기 / 레이아웃 커스터마이징 (content.css 활용)
+- MutationObserver로 SPA 화면 전환 시 동적으로 추가되는 링크도 감지
+- 링크 패턴별로 팝업 크기를 다르게 지정

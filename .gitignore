@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Safari Web Extension 변환 시 Xcode가 생성하는 프로젝트 (Mac에서 생성, 저장소엔 소스만 유지)
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+build/
+
+# 편집기
+.vscode/
