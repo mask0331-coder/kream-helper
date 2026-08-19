@@ -236,7 +236,8 @@ function ensureTradeVolumeDisplay(titleContainer) {
 }
 
 // 페이지 여기저기(유사 상품 등)에 비슷한 거래 내역 위젯이 여러 개 있을 수 있어서,
-// "최근 시세" 표시가 있는 .sales_title_container를 먼저 찾고, 그 조상에서 진짜 패널을 찾습니다.
+// 값이 오락가락하는 걸 막기 위해 "진짜 드로어"(.product-transaction-history-drawer)를
+// 먼저 명확하게 찾고, 그 안에서만 .sales_title_container/행을 찾습니다.
 //
 // 주의: 이 패널은 position: fixed라서 offsetParent가 항상 null입니다(스펙상 원래 그럼) —
 // offsetParent로 "보이는지"를 판단하면 안 되고, getClientRects()로 확인해야 합니다.
@@ -244,41 +245,25 @@ function isRendered(el) {
   return !!el && el.getClientRects().length > 0;
 }
 
-// 실제 바깥 컨테이너는 .transaction_history_summary가 아니라
-// section.product-transaction-history-drawer 였습니다 (DOM 재확인으로 정정).
 const DRAWER_SELECTOR = '.product-transaction-history-drawer';
 
-function findVisibleTitleContainer() {
-  const containers = [...document.querySelectorAll('.sales_title_container')].filter(isRendered);
-  if (containers.length <= 1) return containers[0] || null;
-
-  // 후보가 여러 개면, 거래 행이 더 많이 들어있는 쪽(진짜 상세 패널)을 고릅니다.
-  let best = containers[0];
-  let bestRowCount = -1;
-  for (const container of containers) {
-    const drawer = container.closest(DRAWER_SELECTOR);
-    const rowCount = drawer?.querySelectorAll('.transaction_history_summary__content__item').length ?? 0;
-    if (rowCount > bestRowCount) {
-      best = container;
-      bestRowCount = rowCount;
-    }
-  }
-  return best;
+function findTradeHistoryDrawer() {
+  return [...document.querySelectorAll(DRAWER_SELECTOR)].find(isRendered) || null;
 }
 
-function findSummaryForTitleContainer(titleContainer) {
-  return titleContainer?.closest(DRAWER_SELECTOR) || document.querySelector(DRAWER_SELECTOR);
+function findTitleContainerInDrawer(drawer) {
+  const el = drawer?.querySelector('.sales_title_container');
+  return isRendered(el) ? el : null;
 }
 
 let isAutoPaginatingTradeVolume = false;
 let tradeVolumeRecomputeTimer = null;
 
 async function computeAndDisplayTradeVolume() {
-  const titleContainer = findVisibleTitleContainer();
-  if (!titleContainer) return;
-  const summary = findSummaryForTitleContainer(titleContainer);
+  const summary = findTradeHistoryDrawer();
   if (!summary) return;
-  if (!isRendered(titleContainer)) return; // 패널이 안 열려있으면 건너뜀
+  const titleContainer = findTitleContainerInDrawer(summary);
+  if (!titleContainer) return;
 
   const display = ensureTradeVolumeDisplay(titleContainer);
   display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
@@ -302,11 +287,9 @@ function scheduleTradeVolumeRecompute() {
   tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
 }
 
-// 진짜 패널(.sales_title_container를 담고 있는 쪽)이 렌더링될 때까지 기다렸다가,
-// 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
+// 진짜 드로어가 렌더링될 때까지 기다렸다가, 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
 function initTradeVolumeFeature() {
-  const titleContainer = findVisibleTitleContainer();
-  const summary = titleContainer && findSummaryForTitleContainer(titleContainer);
+  const summary = findTradeHistoryDrawer();
   if (!summary) {
     setTimeout(initTradeVolumeFeature, 500);
     return;
