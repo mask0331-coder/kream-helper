@@ -102,3 +102,164 @@ const toolbarObserver = new MutationObserver(() => {
   if (!document.getElementById('kream-helper-toolbar')) createToolbar();
 });
 toolbarObserver.observe(document.body, { childList: true, subtree: false });
+
+// --- "거래 및 입찰 내역" 패널: 최근 30일 거래량을 "최근 시세" 옆에 표시 ---
+// 화면에 보이는 행만 세면 되는 이유: 사이트 자체가 옵션 필터(전체/특정 사이즈)에 따라
+// 이미 알맞은 행만 보여주므로, 저희가 "지금 어떤 옵션이 선택됐는지" 따로 읽을 필요가 없습니다.
+const TRADE_VOLUME_DAYS = 30;
+const TRADE_VOLUME_CLASS = 'kream-helper-trade-volume';
+
+if (!document.getElementById('kream-helper-trade-volume-style')) {
+  const styleTag = document.createElement('style');
+  styleTag.id = 'kream-helper-trade-volume-style';
+  styleTag.textContent = `
+    .${TRADE_VOLUME_CLASS} {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #666;
+    }
+    .${TRADE_VOLUME_CLASS} b {
+      color: #e60000;
+      font-weight: 700;
+    }
+  `;
+  document.head.appendChild(styleTag);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseTradeRowDate(text) {
+  const t = text.trim();
+  const now = Date.now();
+  if (/^방금\s*전?$/.test(t)) return new Date(now);
+  let m = t.match(/^(\d+)\s*초\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 1000);
+  m = t.match(/^(\d+)\s*분\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 60000);
+  m = t.match(/^(\d+)\s*시간\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 3600000);
+  m = t.match(/^(\d+)\s*일\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 86400000);
+  m = t.match(/^(\d{2})\/(\d{2})\/(\d{2})$/); // "26/08/18" = 2026-08-18
+  if (m) {
+    const [, yy, mm, dd] = m;
+    return new Date(2000 + Number(yy), Number(mm) - 1, Number(dd));
+  }
+  return null; // 알 수 없는 형식 - 집계에서 제외
+}
+
+function getTradeVolumeRows(summary) {
+  // 탭이 여러 개(체결 거래/판매 입찰/구매 입찰) 존재하므로, 지금 보이는 탭 안의 행만 가져옵니다.
+  const activeTab = summary.querySelector('.tab_content.show') || summary;
+  return [...activeTab.querySelectorAll('.transaction_history_summary__content__item')];
+}
+
+function findLoadMoreButton(summary) {
+  return [...summary.querySelectorAll('p, div, span, button, a')].find(
+    (e) => e.children.length === 0 && e.textContent.trim() === '거래 내역 더보기'
+  );
+}
+
+// "더보기"를 30일 이전 데이터가 나오거나 더 불러올 게 없을 때까지 반복 클릭합니다.
+async function loadTradeRowsWithin30Days(summary) {
+  const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
+  const maxAttempts = 60;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const rows = getTradeVolumeRows(summary);
+    if (rows.length === 0) break;
+
+    const lastRow = rows[rows.length - 1];
+    const lastDate = parseTradeRowDate(lastRow.children[2]?.textContent || '');
+    if (lastDate && lastDate.getTime() < cutoff) break; // 30일 이전까지 충분히 불러옴
+
+    const moreBtn = findLoadMoreButton(summary);
+    if (!moreBtn) break; // 더 불러올 게 없음
+
+    const beforeCount = rows.length;
+    moreBtn.click();
+
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 3000) {
+      await sleep(150);
+      if (getTradeVolumeRows(summary).length > beforeCount) break;
+    }
+    if (getTradeVolumeRows(summary).length === beforeCount) break; // 더 안 불러와짐
+  }
+
+  return getTradeVolumeRows(summary);
+}
+
+function countTradeRowsWithin30Days(rows) {
+  const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
+  let count = 0;
+  for (const row of rows) {
+    const date = parseTradeRowDate(row.children[2]?.textContent || '');
+    if (date && date.getTime() >= cutoff) count += 1;
+  }
+  return count;
+}
+
+function ensureTradeVolumeDisplay(titleContainer) {
+  let el = titleContainer.querySelector('.' + TRADE_VOLUME_CLASS);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = TRADE_VOLUME_CLASS;
+    titleContainer.appendChild(el);
+  }
+  return el;
+}
+
+let isAutoPaginatingTradeVolume = false;
+let tradeVolumeRecomputeTimer = null;
+
+async function computeAndDisplayTradeVolume() {
+  const summary = document.querySelector('.transaction_history_summary');
+  const titleContainer = document.querySelector('.sales_title_container');
+  if (!summary || !titleContainer) return;
+  if (summary.offsetParent === null) return; // 패널이 안 열려있으면 건너뜀
+
+  const display = ensureTradeVolumeDisplay(titleContainer);
+  display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
+
+  isAutoPaginatingTradeVolume = true;
+  try {
+    const rows = await loadTradeRowsWithin30Days(summary);
+    const count = countTradeRowsWithin30Days(rows);
+    display.innerHTML = `최근 ${TRADE_VOLUME_DAYS}일 거래량 <b>${count.toLocaleString()}건</b>`;
+  } catch (err) {
+    console.warn('[Kream Helper] 거래량 계산 실패:', err);
+    display.textContent = '거래량 계산 실패';
+  } finally {
+    isAutoPaginatingTradeVolume = false;
+  }
+}
+
+function scheduleTradeVolumeRecompute() {
+  if (isAutoPaginatingTradeVolume) return; // 우리가 만든 변화는 무시 (무한루프 방지)
+  clearTimeout(tradeVolumeRecomputeTimer);
+  tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
+}
+
+// summary 패널이 렌더링될 때까지 기다렸다가, 찾으면 그 안쪽만 감시(범위를 좁혀 성능 부담을 줄임)
+function initTradeVolumeFeature() {
+  const summary = document.querySelector('.transaction_history_summary');
+  if (!summary) {
+    setTimeout(initTradeVolumeFeature, 500);
+    return;
+  }
+
+  const tradeVolumeObserver = new MutationObserver(scheduleTradeVolumeRecompute);
+  tradeVolumeObserver.observe(summary, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+
+  scheduleTradeVolumeRecompute();
+}
+
+initTradeVolumeFeature();
