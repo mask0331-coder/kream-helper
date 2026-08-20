@@ -175,82 +175,110 @@ function getRowDateText(row) {
   return '';
 }
 
-// 이 버튼은 드로어의 DOM 안이 아니라 페이지의 다른 곳(모바일/데스크톱용이 따로 렌더링되는
-// 구조로 보임)에 있어서, 드로어로 범위를 좁히지 않고 페이지 전체에서 "실제로 보이는" 것만 찾습니다.
-function findLoadMoreButton() {
-  return [...document.querySelectorAll('p, div, span, button, a')].find(
-    (e) => e.children.length === 0 && e.textContent.trim() === '거래 내역 더보기' && isRendered(e)
-  );
+// 실측 확인(2026-08-20, capture-phase 'scroll' 리스너로 실제 이벤트 타깃을 직접 캡처):
+// 이 드로어는 position:fixed라 window 스크롤과 무관하고(sentinel이 window.scrollBy 후에도
+// 화면에서 전혀 안 움직임, 실측 확인), .click()/WheelEvent 둘 다 무반응이었습니다.
+// 진짜 스크롤이 일어나는 요소는 드로어 내부의 `.drawer__content`(class="drawer__content")
+// 하나뿐입니다 - 사용자가 실제로 마우스 휠을 굴렸을 때 이 요소에서만 native 'scroll'
+// 이벤트가 발생하는 걸 확인했습니다. 이 요소는 sentinel의 DOM 조상 체인에는 없었는데도
+// (렌더링 구조가 분리돼 있는 것으로 보임) 실제 스크롤 담당은 이 요소가 맞습니다.
+// `.drawer__content`는 같은 클래스명이 페이지에 여러 개(다른 드로어용) 있을 수 있어
+// isRendered로 화면에 실제 보이는 것만 고릅니다.
+function findDrawerContent() {
+  return [...document.querySelectorAll('.drawer__content')].find(isRendered) || null;
 }
 
-const TRADE_VOLUME_DEBUG = true; // 문제 해결되면 false로
+function triggerLoadMoreScroll() {
+  const content = findDrawerContent();
+  if (!content) return false;
+  // scrollTop을 직접 바꾸면(사람이 휠로 바꾼 것과 마찬가지로) 브라우저가 native 'scroll'
+  // 이벤트를 그대로 발생시키므로, 사이트가 그 이벤트를 듣고 다음 페이지를 로드합니다.
+  content.scrollTop = content.scrollHeight;
+  return true;
+}
 
-// "더보기"를 30일 이전 데이터가 나오거나 더 불러올 게 없을 때까지 반복 클릭합니다.
-async function loadTradeRowsWithin30Days(summary) {
+// 집계하려고 맨 아래까지 계속 내려놨던 걸, 끝나면 다시 맨 위로 돌려놓습니다 - 안 그러면
+// "최근 시세" 옆 거래량 표시(패널 상단)가 사용자 눈에는 화면 밖으로 스크롤된 채로 남아
+// 안 보이는 상태가 됩니다(실측 확인: 스크롤 안 내렸으면 scrollTop이 이미 0이라 no-op).
+function resetDrawerScrollToTop() {
+  const content = findDrawerContent();
+  if (content) content.scrollTop = 0;
+}
+
+const TRADE_VOLUME_DEBUG = false; // 문제 생기면 true로 (2026-08-20: 안정화 확인 완료)
+
+// 스크롤로 30일 이전 데이터가 나오거나 더 불러올 게 없을 때까지 계속 내리면서,
+// 화면에 새로 나타난 행만 누적 집계합니다.
+//
+// 행을 "인덱스 기준"(몇 번째까지 이미 셌는지)으로 추적하는 이유: 처음엔 날짜+옵션+가격을
+// 합친 내용 기반 키로 중복을 걸렀는데, 오래된 행은 날짜가 "26/08/09" 같은 일 단위로만
+// 표시돼서 같은 날 같은 옵션+가격 거래가 여러 건이면 서로 다른 진짜 거래인데도 같은 키로
+// 뭉개지는 버그가 실측으로 확인됐습니다(50건 중 11건 유실). 이 목록은 스크롤할 때마다
+// 뒤에 새 행이 append되기만 하고(윈도잉으로 앞이 사라지는 게 아니라 클릭이 그냥 무반응이었던
+// 것뿐) 순서가 안 바뀌는 것으로 보이므로, 이미 처리한 인덱스는 다시 안 보면 충돌 걱정 없이
+// 정확히 셀 수 있습니다.
+async function collectTradeVolumeWithin30Days(summary) {
   const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
-  const maxAttempts = 60;
+  const maxAttempts = 150;
+  let count = 0;
+  let processed = 0; // rows[0..processed-1]은 이미 센 행
 
   // 패널이 막 열린 직후엔 사이트 자체 데이터 로딩이 아직 안 끝났을 수 있어 살짝 대기 후 시작
   await sleep(400);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const rows = getTradeVolumeRows(summary);
-    if (TRADE_VOLUME_DEBUG) {
-      console.log(
-        `[KH] attempt ${attempt}: rows=${rows.length}, lastDateText="${
-          rows.length ? getRowDateText(rows[rows.length - 1]) : ''
-        }"`
-      );
-    }
     if (rows.length === 0) {
+      if (TRADE_VOLUME_DEBUG) console.log(`[KH] attempt ${attempt}: rows=0, 대기`);
       await sleep(300);
       continue;
     }
 
-    const lastRow = rows[rows.length - 1];
-    const lastDate = parseTradeRowDate(getRowDateText(lastRow));
-    if (lastDate && lastDate.getTime() < cutoff) {
+    let reachedCutoff = false;
+    for (; processed < rows.length; processed++) {
+      const date = parseTradeRowDate(getRowDateText(rows[processed]));
+      if (date && date.getTime() < cutoff) {
+        reachedCutoff = true;
+        break;
+      }
+      if (date) count += 1;
+    }
+
+    if (TRADE_VOLUME_DEBUG) {
+      console.log(`[KH] attempt ${attempt}: rows=${rows.length}, processed=${processed}, count=${count}`);
+    }
+
+    if (reachedCutoff) {
       if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 30일 이전 도달');
       break;
     }
 
-    let moreBtn = findLoadMoreButton();
-    if (!moreBtn) {
-      await sleep(400);
-      moreBtn = findLoadMoreButton();
-      if (!moreBtn) {
-        if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 더보기 버튼 못 찾음');
+    const beforeLength = rows.length;
+    const triggered = triggerLoadMoreScroll();
+    if (!triggered) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: drawer__content 못 찾음');
+      break;
+    }
+    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 스크롤 트리거 (attempt=${attempt})`);
+
+    const waitStart = Date.now();
+    let grew = false;
+    while (Date.now() - waitStart < 3000) {
+      await sleep(150);
+      triggerLoadMoreScroll(); // scrollHeight가 계속 늘어날 수 있어 매번 다시 맨 끝까지 스크롤
+      if (getTradeVolumeRows(summary).length > beforeLength) {
+        grew = true;
         break;
       }
     }
-
-    const beforeCount = rows.length;
-    moreBtn.click();
-    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 더보기 클릭 (before=${beforeCount})`);
-
-    const waitStart = Date.now();
-    while (Date.now() - waitStart < 3000) {
-      await sleep(150);
-      if (getTradeVolumeRows(summary).length > beforeCount) break;
-    }
-    const afterCount = getTradeVolumeRows(summary).length;
-    if (afterCount === beforeCount) {
-      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 클릭해도 행 안 늘어남');
+    if (!grew) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 스크롤해도 행 안 늘어남');
       break;
     }
   }
 
-  const finalRows = getTradeVolumeRows(summary);
-  if (TRADE_VOLUME_DEBUG) console.log(`[KH] loadTradeRowsWithin30Days 종료, 최종 rows=${finalRows.length}`);
-  return finalRows;
-}
-
-function countTradeRowsWithin30Days(rows) {
-  const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
-  let count = 0;
-  for (const row of rows) {
-    const date = parseTradeRowDate(getRowDateText(row));
-    if (date && date.getTime() >= cutoff) count += 1;
+  if (TRADE_VOLUME_DEBUG) {
+    console.log(`[KH] collectTradeVolumeWithin30Days 종료, count=${count}, processed=${processed}`);
   }
   return count;
 }
@@ -323,11 +351,12 @@ async function computeAndDisplayTradeVolume() {
 
   isAutoPaginatingTradeVolume = true;
   try {
-    const rows = await loadTradeRowsWithin30Days(summary);
-    const count = countTradeRowsWithin30Days(rows);
+    const count = await collectTradeVolumeWithin30Days(summary);
+    resetDrawerScrollToTop();
     if (TRADE_VOLUME_DEBUG) console.log(`[KH] 최종 count=${count}`);
     display.innerHTML = `최근 ${TRADE_VOLUME_DAYS}일 거래량 <b>${count.toLocaleString()}건</b>`;
   } catch (err) {
+    resetDrawerScrollToTop();
     console.warn('[Kream Helper] 거래량 계산 실패:', err);
     display.textContent = '거래량 계산 실패';
   } finally {
