@@ -67,10 +67,20 @@ function isDifferentPage(href) {
   }
 }
 
+// 같은 "상품상세" 링크라도 위치에 따라 사이트가 공백을 다르게 넣는 경우가 있어서
+// (예: 상품 상세 페이지 자체 안내문은 "상품상세", 주문 상세 페이지의 버튼은 "상품 상세"),
+// 공백을 지우고 비교합니다.
+function normalizeForMatch(s) {
+  return s.replace(/\s+/g, '');
+}
+
 function matchesLinkText(link) {
   if (linkTexts.length === 0) return false;
-  const text = link.textContent.trim();
-  return linkTexts.some((t) => text === t || text.startsWith(t)); // 이미 "(팝업)"이 붙은 것도 허용
+  const text = normalizeForMatch(link.textContent.trim());
+  return linkTexts.some((t) => {
+    const nt = normalizeForMatch(t);
+    return text === nt || text.startsWith(nt);
+  }); // 이미 "(팝업)"이 붙은 것도 허용
 }
 
 function matchesLinkClass(link) {
@@ -138,9 +148,97 @@ document.addEventListener(
   true
 );
 
-// --- 팝업으로 열릴 링크에 "(팝업)" 표시 붙이기 ---
-// 사이트 자체 텍스트는 못 바꾸니, 렌더링된 링크의 textContent를 찾아서 덧붙입니다.
-// Vue가 나중에(예: 드로어를 열 때) 링크를 그려 넣으므로 MutationObserver로 감시합니다.
+// --- href 없는 버튼(예: 주문 상세 페이지의 "상품 상세") 클릭도 팝업으로 ---
+// 실측 확인(2026-08-20): 이 버튼은 <a href>가 아니라 순수 <button>이라(클릭 핸들러로 Vue
+// 라우터가 페이지 안에서 직접 이동시킴) 위 핸들러로 못 잡습니다. 처음엔 클릭을 그대로
+// 통과시켜 실제로 이동하게 둔 뒤 history.back()으로 되돌리는 방식을 시도했는데, Vue의
+// 화면 갱신이 비동기라 저희가 되돌리는 시점보다 늦게 반영돼서 "상품 페이지로 넘어갔다가
+// 다시 돌아오는" 깜빡임이 사용자 화면에서 실제로 보였습니다(사용자 확인).
+// 그래서 원래 탭에서는 이동 자체가 아예 안 일어나게 클릭을 막고, 대신 "이 주문 페이지를
+// 다시 열되 이 버튼을 자동으로 눌러서 이동해라"는 표식(URL 해시)을 붙인 팝업을 새로
+// 엽니다. 그 팝업 안에서 이 스크립트가 다시 실행되며(매니페스트가 kream.co.kr 전체에
+// 주입되므로) 해당 버튼을 찾아 실제로 클릭해서 Vue 라우터가 "그 팝업 창 안에서만"
+// 이동하게 둡니다 - 원래 탭은 전혀 안 건드립니다.
+//
+// 팝업 안에서도 "주문 페이지 → 상품 페이지" 전환이 잠깐 보였다가 넘어가는 게 눈에
+// 띈다는 피드백을 받아서(사용자 확인), early-hide.js가 document_start 시점에 이
+// 창 전체를 미리 숨겨뒀다가(화면이 아직 아무것도 그려지기 전), 아래에서 실제 이동이
+// 끝난 뒤에(경로가 바뀌고 Vue가 다시 그릴 시간을 살짝 준 뒤) 다시 보여줍니다.
+const AUTO_DETAIL_HASH = '#kream-helper-auto-detail';
+const isAutoDetailPopup = location.hash === AUTO_DETAIL_HASH;
+
+function findMatchingClickable() {
+  return [...document.querySelectorAll('button, [role="button"]')].find(matchesLinkText) || null;
+}
+
+function revealAutoDetailPopup() {
+  document.documentElement.style.visibility = 'visible';
+}
+
+// 클릭 직후 실제로 다른 경로(상품 페이지)로 이동했는지 확인하고, 이동했으면 Vue가
+// 마저 그릴 시간을 살짝 준 뒤 화면을 보여줍니다. 너무 오래(5초) 이동이 없으면
+// 포기하고(예: 클릭이 아무 효과가 없었던 경우) 그냥 지금 상태로 보여줍니다 - 화면이
+// 영영 숨겨진 채로 남는 걸 막기 위한 안전장치입니다.
+function waitForNavigationThenReveal() {
+  const startPathname = location.pathname;
+  const deadline = Date.now() + 5000;
+
+  (function poll() {
+    if (location.pathname !== startPathname || Date.now() > deadline) {
+      setTimeout(revealAutoDetailPopup, 150); // Vue 재렌더링 마무리 대기
+      return;
+    }
+    requestAnimationFrame(poll);
+  })();
+}
+
+if (isAutoDetailPopup) {
+  (function autoClickMatchingButton() {
+    const el = findMatchingClickable();
+    if (el) {
+      el.click();
+      waitForNavigationThenReveal();
+      return;
+    }
+    const mo = new MutationObserver(() => {
+      const found = findMatchingClickable();
+      if (found) {
+        mo.disconnect();
+        found.click();
+        waitForNavigationThenReveal();
+      }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => {
+      mo.disconnect();
+      revealAutoDetailPopup(); // 8초 내로 버튼을 못 찾았으면 포기하고 화면을 보여줌
+    }, 8000);
+  })();
+}
+
+document.addEventListener(
+  'click',
+  (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    if (event.target.closest('a[href]')) return; // 링크는 위쪽 핸들러가 이미 처리
+    const clickable = event.target.closest('button, [role="button"]');
+    if (!clickable || !matchesLinkText(clickable)) return;
+
+    if (isAutoDetailPopup) return; // 자동 클릭 모드에선 그대로 진행시켜 팝업 창 자신이 이동하게 둠
+
+    event.preventDefault();
+    event.stopPropagation();
+    const marker = location.href.split('#')[0] + AUTO_DETAIL_HASH;
+    openAsPopup(marker);
+  },
+  true
+);
+
+// --- 팝업으로 열릴 링크/버튼에 "(팝업)" 표시 붙이기 ---
+// 사이트 자체 텍스트는 못 바꾸니, 렌더링된 요소의 textContent를 찾아서 덧붙입니다.
+// Vue가 나중에(예: 드로어를 열 때) 그려 넣으므로 MutationObserver로 감시합니다.
 const LABEL_SUFFIX = ' (팝업)';
 const LABELED_FLAG = 'kreamHelperLabeled';
 
@@ -162,11 +260,29 @@ function labelLinkIfMatch(link) {
   }
 }
 
+// href가 없는 버튼(예: 주문 상세 페이지의 "상품 상세")용 라벨링. 텍스트 조건만으로
+// 판단합니다(버튼은 URL이 없어서 matchesAnyPattern을 못 씀).
+function labelButtonIfMatch(button) {
+  if (button.dataset[LABELED_FLAG]) return;
+  if (!matchesLinkText(button)) return;
+
+  button.dataset[LABELED_FLAG] = 'true';
+  const text = button.textContent.trim();
+  if (text && !text.endsWith(LABEL_SUFFIX.trim())) {
+    button.textContent = text + LABEL_SUFFIX;
+  }
+}
+
 function labelPopupLinks(root) {
   if (root.nodeType === Node.ELEMENT_NODE && root.matches('a[href]')) {
     labelLinkIfMatch(root);
   }
   root.querySelectorAll?.('a[href]').forEach(labelLinkIfMatch);
+
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches('button, [role="button"]')) {
+    labelButtonIfMatch(root);
+  }
+  root.querySelectorAll?.('button, [role="button"]').forEach(labelButtonIfMatch);
 }
 
 // --- 상품 카드의 "거래" 숫자 강조 (빨간색 + 2배 크기) ---
@@ -198,8 +314,9 @@ function applyTradeStyle(el) {
   el.classList.add(TRADE_HIGHLIGHT_CLASS);
 }
 
-// 사이트가 나중에 재렌더링하면서 저희가 붙인 class를 지울 수도 있어서, 이 함수는
-// 여러 번 반복 호출해도 안전(idempotent)하게 만들어 놨습니다 — 아래 주기적 재적용에서 사용.
+// 사이트가 되돌리는 타이밍이 고정돼있지 않아서(150ms 고정 재시도로는 못 맞추는 경우가 있었음),
+// "더 이상 새로 적용할 게 없는 상태"가 3번 연속될 때까지 확인하다가 알아서 멈춥니다
+// (안전장치로 최대 4초 후엔 무조건 멈춤). 이 함수는 여러 번 반복 호출해도 안전(idempotent)합니다.
 function highlightTradeCount(p) {
   if (!TRADE_TEXT_PATTERN.test(p.textContent.trim())) return;
 
@@ -255,7 +372,7 @@ if (location.pathname.startsWith('/search')) {
 
 labelPopupLinks(document);
 
-// Vue가 드로어/카드 목록 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
+// 사이트가 드로어/카드 목록 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
 const observer = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     for (const node of mutation.addedNodes) {
