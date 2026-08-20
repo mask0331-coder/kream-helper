@@ -1,1 +1,31 @@
 /* Kream Helper - 페이지 스타일 오버라이드용 (필요할 때 여기에 추가) */
+
+/* 상품 상세 페이지 "판매"/"구매하기" 버튼 크기 통일 + 색상 교체 (2026-08-20, 사용자 요청)
+   - content.js의 tagActionButtons()가 각 버튼에 아래 class를 붙여줌.
+   - 배경/글자색은 !important로 - 사이트가 인라인 CSS 변수로 계속 관리하는 값을
+     이겨야 해서(거래 강조 스타일과 같은 이유). */
+.kream-helper-sell-btn,
+.kream-helper-buy-btn {
+  flex: 1 1 0% !important;
+  width: auto !important;
+}
+
+/* class를 3번 반복해서 우선순위(specificity)를 인위적으로 높입니다 - 사이트 쪽
+   배경색 규칙도 !important를 쓰고 있어서(실측 확인: flex는 먹혔는데 배경/테두리만
+   안 먹힘 - 글자색은 사이트에 !important가 없어 그냥 이긴 것으로 추정), 단순
+   !important 한 겹으로는 우선순위가 같아서 나중에 로드된 사이트 CSS가 이겼습니다. */
+.kream-helper-sell-btn.kream-helper-sell-btn.kream-helper-sell-btn {
+  background-color: #ef6253 !important;
+  border: none !important;
+}
+.kream-helper-sell-btn.kream-helper-sell-btn.kream-helper-sell-btn .text-element {
+  color: #ffffff !important;
+}
+
+.kream-helper-buy-btn.kream-helper-buy-btn.kream-helper-buy-btn {
+  background-color: #ffffff !important;
+  border: 1px solid #ebebeb !important;
+}
+.kream-helper-buy-btn.kream-helper-buy-btn.kream-helper-buy-btn .text-element {
+  color: #222222 !important;
+}

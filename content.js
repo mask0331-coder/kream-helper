@@ -379,7 +379,84 @@ const observer = new MutationObserver((mutations) => {
       if (node.nodeType !== Node.ELEMENT_NODE) continue;
       labelPopupLinks(node);
       highlightTradeCounts(node);
+      tagActionButtons(node);
     }
   }
 });
 observer.observe(document.body, { childList: true, subtree: true });
+
+// --- 파비콘을 바이낸스 컬러 별 모양으로 교체 ---
+// 사이트 전체(모든 kream.co.kr 페이지)에서 브라우저 탭 아이콘을 바꿉니다. 순수 SVG를
+// data URI로 인라인해서 별도 이미지 파일 없이 만듭니다.
+const FAVICON_COLOR = '#F0B90B'; // 바이낸스 강조색(active/press 톤) - 노란색보다 주황에 가까움
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><polygon points="12,2 14.9,8.5 22,9.3 16.5,14 18.2,21 12,17.3 5.8,21 7.5,14 2,9.3 9.1,8.5" fill="${FAVICON_COLOR}"/></svg>`;
+const FAVICON_HREF = 'data:image/svg+xml,' + encodeURIComponent(FAVICON_SVG);
+const FAVICON_ID = 'kream-helper-favicon';
+
+// Vue가 페이지 메타(파비콘 포함)를 라우트마다 다시 설정할 수 있어서, 저희가 넣은 것 외에
+// 다른 <link rel="icon">이 있거나 저희 것이 사라졌으면 다시 적용합니다. 저희가 head를
+// 직접 건드리는 동안엔 그 변화 자체를 감시 대상에서 빼기 위해 플래그로 재진입을 막습니다
+// (거래량 표시 재계산 무한루프를 막았던 것과 같은 패턴, product-page.js 참고).
+let isApplyingFavicon = false;
+
+function applyCustomFavicon() {
+  const icons = [...document.querySelectorAll('link[rel~="icon"]')];
+  if (icons.length === 1 && icons[0].id === FAVICON_ID && icons[0].href === FAVICON_HREF) {
+    return; // 이미 저희 것만 적용돼 있으면 손 안 댐
+  }
+
+  isApplyingFavicon = true;
+  icons.forEach((el) => el.remove());
+  const link = document.createElement('link');
+  link.id = FAVICON_ID;
+  link.rel = 'icon';
+  link.type = 'image/svg+xml';
+  link.href = FAVICON_HREF;
+  document.head.appendChild(link);
+  setTimeout(() => {
+    isApplyingFavicon = false;
+  }, 50);
+}
+
+applyCustomFavicon();
+
+const faviconObserver = new MutationObserver(() => {
+  if (isApplyingFavicon) return;
+  applyCustomFavicon();
+});
+faviconObserver.observe(document.head, { childList: true });
+
+// --- "판매"/"구매하기" 버튼 크기 통일 + 색상 교체 (2026-08-20, 사용자 요청) ---
+// 상품 상세 페이지의 "판매"(작고 흰 배경)/"구매하기"(크고 빨간 배경) 버튼 크기가
+// 서로 다른 건 부모 컨테이너 class가 layout_list_horizontal-not-equal이라(이름 그대로
+// "안 같게" 배치) 원래 의도된 레이아웃이었습니다 - 실측 확인. 크기를 맞추고 두 버튼의
+// 배경/테두리/글자색을 서로 바꿉니다. 배경/글자색은 Vue가 인라인 CSS 변수
+// (--background-color-pc 등)로 계속 관리하고 있어서(거래 강조 기능 때와 같은 이유,
+// 위 highlightTradeCounts 참고) JS로 값을 직접 바꾸지 않고, 표식 class만 붙여
+// content.css의 !important 규칙이 최종 렌더링 값을 덮어쓰게 합니다.
+const SELL_BUTTON_CLASS = 'kream-helper-sell-btn';
+const BUY_BUTTON_CLASS = 'kream-helper-buy-btn';
+const ACTION_BUTTON_TAGGED_FLAG = 'kreamHelperActionBtn';
+
+function tagActionButtons(root) {
+  if (!location.pathname.startsWith('/products/')) return;
+
+  const candidates =
+    root.nodeType === Node.ELEMENT_NODE && root.matches('button.button_medium')
+      ? [root]
+      : [...(root.querySelectorAll?.('button.button_medium') ?? [])];
+
+  for (const btn of candidates) {
+    if (btn.dataset[ACTION_BUTTON_TAGGED_FLAG]) continue;
+    const text = btn.textContent.trim();
+    if (text === '판매') {
+      btn.dataset[ACTION_BUTTON_TAGGED_FLAG] = 'true';
+      btn.classList.add(SELL_BUTTON_CLASS);
+    } else if (text === '구매하기') {
+      btn.dataset[ACTION_BUTTON_TAGGED_FLAG] = 'true';
+      btn.classList.add(BUY_BUTTON_CLASS);
+    }
+  }
+}
+
+tagActionButtons(document);
