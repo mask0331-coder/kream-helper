@@ -34,3 +34,18 @@
   color: #ffffff !important;
   font-weight: 400 !important;
 }
+
+/* 판매 입찰(변경) 페이지에서 판매 희망가를 자동으로 고쳤을 때, 그냥 조용히 값만
+   바뀌면 실제로 바뀐 건지 헷갈린다는 피드백(2026-08-20)으로 넣은 반짝임 애니메이션.
+   content.js의 flashInputChanged()가 이 class를 붙였다 뗐다 합니다. */
+@keyframes kream-helper-price-flash {
+  0% {
+    background-color: #fff3b0;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.kream-helper-price-corrected {
+  animation: kream-helper-price-flash 1.2s ease-out;
+}

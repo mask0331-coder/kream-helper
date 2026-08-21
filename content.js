@@ -378,6 +378,9 @@ const observer = new MutationObserver((mutations) => {
       labelPopupLinks(node);
       highlightTradeCounts(node);
       tagActionButtons(node);
+      moveOrderActionButtons();
+      autoOpenBidAgreementPopup();
+      checkRequiredAgreementCheckboxes();
     }
   }
 });
@@ -458,3 +461,161 @@ function tagActionButtons(root) {
 }
 
 tagActionButtons(document);
+
+// --- 주문 상세 페이지: 입찰 변경/즉시 판매/목록보기 버튼을 "상품 상세" 버튼 바로 아래로 이동 ---
+// 실측 확인(2026-08-20): "입찰 변경하기"/"즉시 판매하기"는 페이지 맨 아래
+// .order_footer .order_buttons 안에, "목록보기"는 별도로 .detail_btn_box 안에 떨어져
+// 있어서, "상품 상세" 버튼이 있는 .order_detail_header_buttons 바로 뒤로 옮깁니다.
+// 클릭 핸들러가 달린 실제 동작 버튼이라 제거 후 재생성이 아니라 insertAdjacentElement로
+// "이동"만 시킵니다 - 이 방식은 이벤트 리스너를 그대로 보존합니다(DOM 스펙 동작).
+function moveOrderActionButtons() {
+  if (!location.pathname.startsWith('/my/selling/')) return;
+
+  const headerButtons = document.querySelector('.order_detail_header_buttons');
+  const orderButtons = document.querySelector('.order_footer .order_buttons');
+  if (!headerButtons || !orderButtons) return;
+  if (orderButtons.dataset.kreamHelperMoved) return; // 이미 옮겼으면 다시 안 옮김
+
+  headerButtons.insertAdjacentElement('afterend', orderButtons);
+  const listBtnBox = document.querySelector('.detail_btn_box');
+  if (listBtnBox) orderButtons.insertAdjacentElement('afterend', listBtnBox);
+  orderButtons.dataset.kreamHelperMoved = 'true';
+}
+
+moveOrderActionButtons();
+
+// --- 판매 입찰(변경) 페이지: 판매 희망가가 즉시 구매가보다 높으면 자동 보정 ---
+// 실측 확인(2026-08-20): /sell/<id>?...&type=ask&... 페이지의 "판매 희망가" 입력은
+// URL의 price= 파라미터로 미리 채워지는데, 그 값이 "즉시 구매가"보다 높은 채로 들어올
+// 수 있습니다(사용자 확인 사례). 이럴 때 즉시 구매가보다 1,000원 낮게 자동으로 고쳐
+// 넣습니다. Vue가 v-model로 관리하는 입력이라 input.value = ... 만으로는 반응하지
+// 않아서, 네이티브 value setter로 값을 바꾼 뒤 input/change 이벤트를 직접 발생시킵니다
+// (React/Vue 컨트롤드 인풋에 흔히 쓰는 기법).
+function getPriceListValue(labelText) {
+  const items = [...document.querySelectorAll('.price_list .list_item')];
+  for (const item of items) {
+    const title = item.querySelector('p')?.textContent.trim();
+    if (title !== labelText) continue;
+    const digits = item.textContent.replace(title, '').replace(/[^0-9]/g, '');
+    return digits ? parseInt(digits, 10) : null;
+  }
+  return null;
+}
+
+function setNativeInputValue(input, value) {
+  const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  nativeSetter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  // 실측 확인(2026-08-20): input/change만으로는 "정산금액"이 재계산 안 됐는데, 직접
+  // 클릭했다가 다른 곳을 누르면(포커스 → 블러) 바뀌었습니다 - 정산금액 계산이 blur에
+  // 걸려있는 것으로 보여 focus/blur도 같이 흉내냅니다.
+  input.focus();
+  input.blur();
+}
+
+// 값이 바뀌었을 때 눈에 띄게 - 그냥 조용히 바뀌면 실제로 바뀐 건지 헷갈린다는 피드백
+// (2026-08-20). content.css의 @keyframes로 배경색이 살짝 반짝였다 사라지는 애니메이션.
+function flashInputChanged(input) {
+  input.classList.remove('kream-helper-price-corrected');
+  void input.offsetWidth; // 강제 리플로우 - 클래스를 지웠다 바로 다시 붙여도 애니메이션이 재시작되게
+  input.classList.add('kream-helper-price-corrected');
+}
+
+// 실측 확인(2026-08-20): "URL(href)당 한 번만 판정" 캐시를 뒀었는데, 이게 진짜 버그의
+// 원인이었습니다 - 같은 주문으로 "입찰 변경하기"를 다시 눌러도 URL(가격 파라미터 포함)이
+// 이전과 똑같이 나오는 경우가 있어서, "이미 처리한 URL"로 착각하고 두 번째부터는 아예
+// 손을 안 대고 건너뛰었습니다("한 번은 되는데 새로고침해야 다시 됨" 증상의 진짜 원인 -
+// SPA 재방문 문제라고 오판했던 첫 진단은 틀렸음). 캐시를 아예 없애고, 대신 "즉시 구매가
+// 보다 높으면 항상 고친다"는 규칙을 /sell/ 페이지에 있는 동안 계속 확인합니다 -
+// 한 번 고치고 나면 currentValue <= instantBuyPrice가 되어 자연히 더 이상 안 건드리므로
+// 무한 루프나 사용자 타이핑 방해 걱정 없이 단순합니다.
+// "입찰 변경하기" 링크로 들어왔을 때만 동작 - 그 흐름의 URL에 from=changeBidding
+// 쿼리 파라미터가 붙는 걸 실측 확인함(예:
+// /sell/344550?...&from=changeBidding&method=bidding&type=ask&...). 다른 경로로
+// /sell/ 페이지에 들어온 경우(신규 입찰 등)는 이 표식이 없어서 자동으로 제외됩니다.
+function tryCorrectSellBidPrice() {
+  if (!location.pathname.startsWith('/sell/')) return;
+  if (new URLSearchParams(location.search).get('from') !== 'changeBidding') return;
+
+  const input = document.querySelector('input.input_amount[placeholder="희망가 입력"]');
+  if (!input || !input.value) return;
+
+  const instantBuyPrice = getPriceListValue('즉시 구매가');
+  if (instantBuyPrice == null) return;
+
+  const currentValue = parseInt(input.value.replace(/[^0-9]/g, ''), 10);
+  if (!Number.isFinite(currentValue)) return;
+
+  if (currentValue > instantBuyPrice) {
+    setNativeInputValue(input, String(instantBuyPrice - 1000));
+    flashInputChanged(input);
+  }
+}
+
+setInterval(tryCorrectSellBidPrice, 500);
+
+// --- 판매 입찰 확인 페이지: "N원 · 입찰하기" 버튼 자동 클릭 ---
+// 실측 확인(2026-08-20): 이 버튼(button.button_large, 텍스트에 "입찰하기" 포함)을
+// 눌러야 [필수] 체크박스 4개짜리 확인 팝업이 뜨는데, 사용자 요청으로 이 버튼을 미리
+// 자동으로 눌러서 팝업이 바로 뜨게 합니다. 팝업 안의 진짜 최종 제출 버튼은 그대로
+// 사용자가 직접 누릅니다 - 이건 그 앞의 확인창을 여는 버튼일 뿐입니다. 한 번 클릭한
+// 버튼은 표식을 남겨 다시 안 누릅니다(팝업을 닫았다 다시 열고 싶을 수도 있어서).
+function autoOpenBidAgreementPopup() {
+  if (!location.pathname.startsWith('/sell/')) return;
+  const btn = [...document.querySelectorAll('button.button_large')].find((b) =>
+    b.textContent.includes('입찰하기')
+  );
+  if (!btn || btn.dataset.kreamHelperAutoClicked) return;
+  btn.dataset.kreamHelperAutoClicked = 'true';
+  btn.click();
+}
+
+autoOpenBidAgreementPopup();
+
+// --- 판매조건 확인 팝업: "[필수]" 체크박스 자동 체크 ---
+// 실측 확인(2026-08-20): 각 항목은 <label role="button"> 안에 숨겨진
+// <input type="checkbox" class="blind">가 있고, 라벨을 클릭하면 네이티브하게
+// 토글되면서 Vue의 변화 감지도 정상적으로 따라옵니다(.checked를 직접 건드리는 것보다
+// 안전 - change 이벤트가 자동으로 붙어서 나옴). "[필수]"로 시작하는 항목만 골라서,
+// 사이트 다른 곳의 무관한 체크박스는 건드리지 않습니다.
+//
+// 실측 확인(2026-08-20): 4개를 한 번에 순회하며 연속으로 .click()하면 1개만 체크된
+// 채로 끝났습니다 - 하나 체크할 때마다 사이트가 목록을 다시 그려서, 스냅샷으로 미리
+// 찾아둔 나머지 항목들이 이미 화면에서 사라진 옛 요소가 됐던 것으로 보입니다. 그래서
+// 한 번에 하나씩만, 매번 document에서 새로 찾아서, 재렌더링이 끝날 시간을 준 뒤
+// 다음 걸 찾도록 바꿨습니다.
+//
+// 실측 확인(2026-08-20): 그런데도 2개씩 겹쳐서 체크되는 게 보였습니다 - 팝업이 뜨는
+// 동안 DOM 변화가 여러 번 감지돼서(MutationObserver), 이 함수가 겹쳐서 여러 번
+// 새로 시작되고 있었습니다(각자 독립적으로 "다음 걸 찾아 클릭"을 하다 보니 동시에
+// 서로 다른 항목을 클릭). 한 번에 흐름이 하나만 돌도록 잠급니다.
+let isCheckingAgreementBoxes = false;
+
+function checkRequiredAgreementCheckboxes(attempts = 0) {
+  if (attempts === 0) {
+    if (isCheckingAgreementBoxes) return; // 이미 다른 흐름이 진행 중 - 중복 시작 안 함
+    isCheckingAgreementBoxes = true;
+  }
+
+  if (attempts > 20) {
+    isCheckingAgreementBoxes = false; // 안전장치 - 뭔가 계속 안 바뀌면 무한 재시도하지 않음
+    return;
+  }
+
+  const label = [...document.querySelectorAll('label[role="button"]')].find((l) => {
+    const text = l.querySelector('p')?.textContent.trim() ?? '';
+    if (!text.startsWith('[필수]')) return false;
+    const checkbox = l.querySelector('input[type="checkbox"]');
+    return checkbox && !checkbox.checked;
+  });
+  if (!label) {
+    isCheckingAgreementBoxes = false; // 더 이상 체크 안 된 [필수] 항목이 없음 - 끝
+    return;
+  }
+
+  label.querySelector('input[type="checkbox"]').click();
+  setTimeout(() => checkRequiredAgreementCheckboxes(attempts + 1), 200);
+}
+
+checkRequiredAgreementCheckboxes();
