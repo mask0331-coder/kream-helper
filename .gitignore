@@ -9,3 +9,10 @@ build/
 
 # 편집기
 .vscode/
+
+# Syncthing — C:\dev 전체가 Syncthing으로 동기화되던 시절의 잔여물 방어용. 2026-08-21부로
+# 컴퓨터 간 동기화는 git pull/push로만 한다(kream-manager/CLAUDE.md §7 참고, 이 리포도 같은
+# C:\dev Syncthing 폴더 아래 있어서 같은 문제를 겪었다).
+.stfolder/
+.sync-conflict-*
+*.sync-conflict-*
