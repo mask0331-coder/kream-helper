@@ -353,21 +353,19 @@ function highlightTradeCounts(root) {
 
 highlightTradeCounts(document);
 
-// 사이트가 되돌리는 타이밍이 고정돼있지 않아서(150ms 고정 재시도로는 못 맞추는 경우가 있었음),
-// "더 이상 새로 적용할 게 없는 상태"가 3번 연속될 때까지 확인하다가 알아서 멈춥니다
-// (안전장치로 최대 4초 후엔 무조건 멈춤).
+// 사이트가 목록을 다시 그리며(스크롤 로딩, 정렬/필터 변경 등) 저희가 붙인 class를
+// 계속 지울 수 있어서 계속 재적용이 필요합니다. 예전엔 "안정된 상태가 3번 연속"이면
+// 4초 후 멈췄는데, 실측 확인(2026-08-20): 그 이후에 일어나는 재렌더링은 못 잡아서
+// 강조가 간헐적으로 풀린 채 다시 안 돌아오는 문제가 있었습니다 - 검색 페이지에 머무는
+// 동안은 멈추지 않고 계속 재적용합니다(SPA로 다른 페이지로 넘어가면 스스로 멈춤).
 if (location.pathname.startsWith('/search')) {
-  let stableStreak = 0;
-  let ticks = 0;
   const tradeReassertTimer = setInterval(() => {
-    const before = document.querySelectorAll('.' + TRADE_HIGHLIGHT_CLASS).length;
+    if (!location.pathname.startsWith('/search')) {
+      clearInterval(tradeReassertTimer);
+      return;
+    }
     highlightTradeCounts(document);
-    const after = document.querySelectorAll('.' + TRADE_HIGHLIGHT_CLASS).length;
-
-    stableStreak = before === after && after > 0 ? stableStreak + 1 : 0;
-    ticks += 1;
-    if (stableStreak >= 3 || ticks >= 40) clearInterval(tradeReassertTimer);
-  }, 100);
+  }, 300);
 }
 
 labelPopupLinks(document);

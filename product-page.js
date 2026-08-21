@@ -50,7 +50,20 @@ async function copyToClipboard(getValue, button) {
   }
 }
 
+// 이 파일은 manifest.json에서 "/products/*"에만 주입되지만, SPA 방식으로(새로고침 없이)
+// 다른 경로(예: /sell/...)로 넘어가도 이미 주입된 스크립트/관찰자는 그대로 살아있어서
+// 실측으로 버튼이 엉뚱한 페이지에도 계속 나타나는 문제가 있었습니다 - 경로를 매번
+// 다시 확인해서 상품 상세 페이지가 아니면 만들지도, 남겨두지도 않습니다.
+function isProductPage() {
+  return location.pathname.startsWith('/products/');
+}
+
+function removeToolbar() {
+  document.getElementById('kream-helper-toolbar')?.remove();
+}
+
 function createToolbar() {
+  if (!isProductPage()) return;
   if (document.getElementById('kream-helper-toolbar')) return;
 
   const wrap = document.createElement('div');
@@ -97,8 +110,13 @@ function createToolbar() {
 
 createToolbar();
 
-// SPA 네비게이션 등으로 body 내용이 통째로 바뀌어 툴바가 사라지는 경우 대비
+// SPA 네비게이션 등으로 body 내용이 통째로 바뀌어 툴바가 사라지는 경우 대비.
+// 반대로 상품 상세 페이지를 벗어났으면(예: /sell/...) 남아있는 툴바를 지웁니다.
 const toolbarObserver = new MutationObserver(() => {
+  if (!isProductPage()) {
+    removeToolbar();
+    return;
+  }
   if (!document.getElementById('kream-helper-toolbar')) createToolbar();
 });
 toolbarObserver.observe(document.body, { childList: true, subtree: false });
@@ -330,14 +348,55 @@ function findTitleContainerInDrawer(drawer) {
   return isRendered(el) ? el : null;
 }
 
+// 이 패널엔 "체결 거래/판매 입찰/구매 입찰" 3개 탭이 있는데, 거래량 기능은 "체결 거래"
+// 전용입니다(README 참고) - 실측 확인: 표준 ARIA 탭 패턴(role="tab" + aria-selected)이고
+// 활성 탭의 링크 텍스트는 "체결"/"판매"/"구매"로 줄여서 들어있습니다. 예전엔 이 확인이
+// 없어서 판매 입찰/구매 입찰 탭으로 바꿔도 그 탭의 행 목록을 대상으로 그대로 동작하며
+// 자동 스크롤을 계속 내리는 문제가 있었습니다(사용자 확인).
+function isTransactionTabActive(drawer) {
+  // 실측 확인(2026-08-20): li[aria-selected="true"]로 찾으면 실제 탭 전환을 안 따라가는
+  // "낡은" 중복 탭바 인스턴스가 있어서(항상 "체결 거래"에 고정된 채 rendered=true로 잡힘)
+  // 판매 입찰/구매 입찰 탭으로 바꿔도 계속 "체결 거래"로 오판했습니다. 대신 저희가
+  // 행을 읽을 때 이미 쓰고 있는 것과 똑같은 기준(getTradeVolumeRows와 동일한
+  // ".tab_content.show 중 .body_list를 담고 있는 것" 판정)으로 활성 패널을 찾아서,
+  // 두 함수의 판단이 항상 일치하게 맞춥니다.
+  const tabPanes = [...drawer.querySelectorAll('.tab_content.show')];
+  const activePanel = tabPanes.find((t) => t.querySelector('.body_list'));
+  if (!activePanel?.id) return false;
+
+  // 탭 버튼(li) 자체는 드로어의 DOM 자식이 아닐 수 있어서(위와 같은 이유) 문서 전체에서 찾습니다.
+  const tab = document.querySelector(`li[role="tab"][aria-controls="${activePanel.id}"]`);
+  const label = tab?.querySelector('.item_link')?.textContent.trim();
+  return !!label && label.startsWith('체결');
+}
+
 let isAutoPaginatingTradeVolume = false;
 let tradeVolumeRecomputeTimer = null;
+// 이 드로어에서 이미 성공적으로 계산을 마쳤으면(= 이 값과 findTradeHistoryDrawer()가
+// 돌려주는 요소가 같으면) 더 이상 자동으로 재계산하지 않습니다. 실측 확인(2026-08-20):
+// 드로어 안에서 뭔가 바뀔 때마다(사용자가 직접 스크롤해서 과거 내역을 불러오는 것도
+// 포함) 매번 재계산이 트리거돼서, 사용자가 직접 스크롤하는 도중에도 저희 계산 로직이
+// 끼어들어 맨 위로 강제로 되돌리는 문제가 있었습니다. 드로어가 새로 열리면(Vue가 새
+// 요소를 만들어서 이 값과 다시 달라짐) 자동으로 다시 계산됩니다.
+let lastComputedDrawer = null;
 
 async function computeAndDisplayTradeVolume() {
   if (TRADE_VOLUME_DEBUG) console.log('[KH] computeAndDisplayTradeVolume 시작');
   const summary = findTradeHistoryDrawer();
   if (!summary) {
     if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 드로어 못 찾음');
+    return;
+  }
+  if (!isTransactionTabActive(summary)) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 체결 거래 탭이 아님');
+    // 판매 입찰/구매 입찰 탭으로 바뀌었으면 이전에 표시해둔 거래량 안내도 지우고,
+    // "이미 계산함" 상태도 초기화합니다 - 체결 거래 탭으로 다시 돌아오면 새로 계산되게.
+    summary.querySelector('.' + TRADE_VOLUME_CLASS)?.remove();
+    lastComputedDrawer = null;
+    return;
+  }
+  if (lastComputedDrawer === summary) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 이미 이 드로어에서 계산 완료');
     return;
   }
   const titleContainer = findTitleContainerInDrawer(summary);
@@ -355,6 +414,7 @@ async function computeAndDisplayTradeVolume() {
     resetDrawerScrollToTop();
     if (TRADE_VOLUME_DEBUG) console.log(`[KH] 최종 count=${count}`);
     display.innerHTML = `최근 ${TRADE_VOLUME_DAYS}일 거래량 <b>${count.toLocaleString()}건</b>`;
+    lastComputedDrawer = summary; // 성공 - 이 드로어에선 더 이상 자동 재계산 안 함(사용자 스크롤 방해 방지)
   } catch (err) {
     resetDrawerScrollToTop();
     console.warn('[Kream Helper] 거래량 계산 실패:', err);

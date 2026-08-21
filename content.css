@@ -13,19 +13,24 @@
 /* class를 3번 반복해서 우선순위(specificity)를 인위적으로 높입니다 - 사이트 쪽
    배경색 규칙도 !important를 쓰고 있어서(실측 확인: flex는 먹혔는데 배경/테두리만
    안 먹힘 - 글자색은 사이트에 !important가 없어 그냥 이긴 것으로 추정), 단순
-   !important 한 겹으로는 우선순위가 같아서 나중에 로드된 사이트 CSS가 이겼습니다. */
+   !important 한 겹으로는 우선순위가 같아서 나중에 로드된 사이트 CSS가 이겼습니다.
+   2026-08-20 추가 요청: 둘 다 볼드 빼고(사이트 자체 .bold/.pc-bold 클래스가 굵게
+   만듦), 원래 한쪽만 색이 있던 걸(판매=주황, 구매하기=흰색/무색) 둘 다 색이 있게 -
+   판매의 주황(#EF6253)은 그대로 두고, 구매하기는 눈에 띄게 구분되는 파란색으로. */
 .kream-helper-sell-btn.kream-helper-sell-btn.kream-helper-sell-btn {
   background-color: #ef6253 !important;
   border: none !important;
 }
 .kream-helper-sell-btn.kream-helper-sell-btn.kream-helper-sell-btn .text-element {
   color: #ffffff !important;
+  font-weight: 400 !important;
 }
 
 .kream-helper-buy-btn.kream-helper-buy-btn.kream-helper-buy-btn {
-  background-color: #ffffff !important;
-  border: 1px solid #ebebeb !important;
+  background-color: #3b82f6 !important;
+  border: none !important;
 }
 .kream-helper-buy-btn.kream-helper-buy-btn.kream-helper-buy-btn .text-element {
-  color: #222222 !important;
+  color: #ffffff !important;
+  font-weight: 400 !important;
 }
