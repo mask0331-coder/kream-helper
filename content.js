@@ -11,7 +11,10 @@ const DEFAULT_POPUP_SIZE = { width: 480, height: 800 };
 const DEFAULT_LINK_TEXTS = ['상품상세'];
 // 검색 결과 카드처럼 텍스트가 상품마다 달라 텍스트로는 못 고르는 링크는
 // class 이름으로 골라냅니다 (예: 검색 결과 카드의 "product_card").
-const DEFAULT_LINK_CLASSES = ['product_card'];
+// 2026-08-20 사용자 요청으로 검색 결과 카드 팝업 기능은 껐습니다(빈 배열 = class
+// 조건 없음 - product_card는 검색 결과 카드 전용 class라 이거 하나 빼면 그 기능만
+// 딱 없어집니다). 옵션 화면에서 다시 켤 수 있습니다.
+const DEFAULT_LINK_CLASSES = [];
 
 let patterns = DEFAULT_PATTERNS;
 let popupSize = DEFAULT_POPUP_SIZE;
@@ -351,7 +354,10 @@ function highlightTradeCounts(root) {
   root.querySelectorAll?.('p.text-lookup').forEach(highlightTradeCount);
 }
 
-highlightTradeCounts(document);
+// 아래 두 초기 호출(강조/라벨링)도 tagActionButtons와 같은 이유로 살짝 늦춥니다 -
+// Vue 수화가 안 끝난 시점에 건드리면 hydration mismatch 경고가 뜨고 렌더링이
+// 불안정해질 수 있어서(실측 확인, 위 tagActionButtons 주석 참고).
+setTimeout(() => highlightTradeCounts(document), 500);
 
 // 사이트가 목록을 다시 그리며(스크롤 로딩, 정렬/필터 변경 등) 저희가 붙인 class를
 // 계속 지울 수 있어서 계속 재적용이 필요합니다. 예전엔 "안정된 상태가 3번 연속"이면
@@ -368,7 +374,7 @@ if (location.pathname.startsWith('/search')) {
   }, 300);
 }
 
-labelPopupLinks(document);
+setTimeout(() => labelPopupLinks(document), 500);
 
 // 사이트가 드로어/카드 목록 등을 나중에 그려 넣으므로, DOM에 새 노드가 추가될 때마다 다시 검사합니다.
 const observer = new MutationObserver((mutations) => {
@@ -460,7 +466,14 @@ function tagActionButtons(root) {
   }
 }
 
-tagActionButtons(document);
+// 실측 확인(2026-08-20): document_idle 시점에도 Vue의 수화(hydration)가 아직 안 끝나
+// 있을 수 있어서, 이 시점에 바로 class/스타일을 건드리면 Vue 콘솔에 "Hydration class
+// mismatch" 경고가 뜨고(저희가 붙인 kream-helper-buy-btn class가 그대로 찍힘), 페이지
+// 렌더링이 가끔 불안정해지는 것으로 보입니다(다른 기능의 표시가 간헐적으로 안 뜨던
+// 문제와 연관 추정). 처음 한 번은 살짝 늦춰서 Vue가 먼저 자리잡을 시간을 줍니다 -
+// MutationObserver로 걸리는 이후 재적용은 그대로 즉시 실행합니다(그때는 이미 hydration이
+// 끝난 뒤라 문제없음).
+setTimeout(() => tagActionButtons(document), 500);
 
 // --- 주문 상세 페이지: 입찰 변경/즉시 판매/목록보기 버튼을 "상품 상세" 버튼 바로 아래로 이동 ---
 // 실측 확인(2026-08-20): "입찰 변경하기"/"즉시 판매하기"는 페이지 맨 아래
@@ -619,3 +632,481 @@ function checkRequiredAgreementCheckboxes(attempts = 0) {
 }
 
 checkRequiredAgreementCheckboxes();
+
+// ========================================================================
+// 상품 상세 페이지(/products/*) 전용 기능
+// ------------------------------------------------------------------------
+// 원래 별도 파일(product-page.js)로 "/products/*"에만 주입했었는데, 실측으로
+// 중대한 버그가 확인돼서(2026-08-20) 여기로 합쳤습니다: 콘텐츠 스크립트는 실제
+// 페이지 이동(새로고침/URL 직접 입력) 시점에만 주입되고, SPA 방식 이동(검색
+// 결과 클릭 등 - 다른 페이지에서 클릭해서 넘어옴)으로 도착하면 그 페이지에 대해
+// 전혀 주입이 안 됩니다 - "상품 상세 (팝업)" 버튼 기능에서 이미 겪었던 것과 같은
+// 함정을 이 파일에는 반영을 안 해놨던 것. 그 결과 "새로고침해야만 되고 클릭해서
+// 들어오면 하나도 안 뜬다"는 증상으로 나타났습니다(콘솔에서 함수 자체가
+// ReferenceError로 확인됨 - 스크립트가 아예 실행이 안 된 것). content.js는
+// "https://kream.co.kr/*" 전체에 주입돼서 최초 진입 페이지가 어디든 한 번 실행되면
+// 이후 SPA로 어디를 가든 계속 살아있으므로, 여기로 합치고 페이지 종류별 판단은
+// (이 파일의 다른 기능들처럼) location.pathname으로 직접 확인합니다.
+// ========================================================================
+
+function getProductNameKo() {
+  // document.title 형식: "<제품명> 정품 안심 거래 | KREAM"
+  let name = document.title.split('|')[0];
+  name = name.replace(/정품\s*안심\s*거래\s*$/, '');
+  return name.trim();
+}
+
+function getModelNumber() {
+  // "모델번호"라는 캡션과 값이 한 요소 안에 "모델번호 XXXXX" 형태로 같이 들어있음
+  const CAPTION = '모델번호';
+  const el = [...document.querySelectorAll('p, div, span')].find(
+    (e) => e.children.length === 0 && e.textContent.trim().startsWith(CAPTION)
+  );
+  if (!el) return '';
+  return el.textContent.trim().slice(CAPTION.length).trim();
+}
+
+function getProductLink() {
+  const canonical = document.querySelector('link[rel="canonical"]')?.href;
+  return canonical || `${location.origin}${location.pathname}`;
+}
+
+function flashButton(button, message, isError) {
+  const original = button.dataset.label;
+  button.textContent = message;
+  button.style.background = isError ? '#e74c3c' : '#2a9d3f';
+  setTimeout(() => {
+    button.textContent = original;
+    button.style.background = '#111';
+  }, 1200);
+}
+
+async function copyToClipboard(getValue, button) {
+  const text = getValue();
+  if (!text) {
+    flashButton(button, '값을 못 찾음', true);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    flashButton(button, '복사됨!', false);
+  } catch (err) {
+    console.warn('[Kream Helper] 클립보드 복사 실패:', err);
+    flashButton(button, '복사 실패', true);
+  }
+}
+
+function isProductPage() {
+  return location.pathname.startsWith('/products/');
+}
+
+function removeToolbar() {
+  document.getElementById('kream-helper-toolbar')?.remove();
+}
+
+function createToolbar() {
+  if (!isProductPage()) return;
+  if (document.getElementById('kream-helper-toolbar')) return;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'kream-helper-toolbar';
+  Object.assign(wrap.style, {
+    position: 'fixed',
+    top: '32px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: '2147483647',
+    display: 'flex',
+    flexDirection: 'row',
+    gap: '6px',
+    fontFamily: '-apple-system, "Segoe UI", sans-serif',
+  });
+
+  const buttons = [
+    { label: '제품명 복사', getValue: getProductNameKo },
+    { label: '품번 복사', getValue: getModelNumber },
+    { label: '링크 복사', getValue: getProductLink },
+  ];
+
+  buttons.forEach(({ label, getValue }) => {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.dataset.label = label;
+    Object.assign(btn.style, {
+      padding: '8px 14px',
+      fontSize: '13px',
+      border: 'none',
+      borderRadius: '8px',
+      background: '#111',
+      color: '#fff',
+      cursor: 'pointer',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+      transition: 'background 0.2s',
+    });
+    btn.addEventListener('click', () => copyToClipboard(getValue, btn));
+    wrap.appendChild(btn);
+  });
+
+  document.body.appendChild(wrap);
+}
+
+// "주기적으로 확인해서 없으면 만든다" 방식 - MutationObserver보다 덜 우아하지만
+// 위 SPA 주입 문제와 별개로도 튼튼합니다(파비콘/거래강조와 같은 패턴).
+setInterval(() => {
+  if (isProductPage()) {
+    createToolbar();
+  } else {
+    removeToolbar();
+  }
+}, 1000);
+
+// --- "거래 및 입찰 내역" 패널: 최근 30일 거래량을 "최근 시세" 옆에 표시 ---
+// 화면에 보이는 행만 세면 되는 이유: 사이트 자체가 옵션 필터(전체/특정 사이즈)에 따라
+// 이미 알맞은 행만 보여주므로, 저희가 "지금 어떤 옵션이 선택됐는지" 따로 읽을 필요가 없습니다.
+const TRADE_VOLUME_DAYS = 30;
+const TRADE_VOLUME_CLASS = 'kream-helper-trade-volume';
+
+if (!document.getElementById('kream-helper-trade-volume-style')) {
+  const styleTag = document.createElement('style');
+  styleTag.id = 'kream-helper-trade-volume-style';
+  styleTag.textContent = `
+    .${TRADE_VOLUME_CLASS} {
+      margin-left: auto;
+      padding-left: 10px;
+      font-size: 12px;
+      color: #888;
+      white-space: nowrap;
+    }
+    .${TRADE_VOLUME_CLASS} b {
+      color: #e60000;
+      font-weight: 700;
+    }
+  `;
+  document.head.appendChild(styleTag);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseTradeRowDate(text) {
+  const t = text.trim();
+  const now = Date.now();
+  if (/^방금\s*전?$/.test(t)) return new Date(now);
+  let m = t.match(/^(\d+)\s*초\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 1000);
+  m = t.match(/^(\d+)\s*분\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 60000);
+  m = t.match(/^(\d+)\s*시간\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 3600000);
+  m = t.match(/^(\d+)\s*일\s*전$/);
+  if (m) return new Date(now - Number(m[1]) * 86400000);
+  m = t.match(/^(\d{2})\/(\d{2})\/(\d{2})$/); // "26/08/18" = 2026-08-18
+  if (m) {
+    const [, yy, mm, dd] = m;
+    return new Date(2000 + Number(yy), Number(mm) - 1, Number(dd));
+  }
+  return null; // 알 수 없는 형식 - 집계에서 제외
+}
+
+function getTradeVolumeRows(summary) {
+  // 이 패널엔 "탭"이 두 종류입니다: 기간 탭(1개월/3개월/.../전체, 차트용)과
+  // 체결거래/판매입찰/구매입찰 탭(행 목록용) — 둘 다 같은 .tab_content.show 패턴을 써서,
+  // 첫 번째로 찾히는 것만 쓰면 차트 쪽(행이 없는 쪽)을 잘못 짚을 수 있습니다.
+  // 그래서 .tab_content.show 후보들 중 실제로 .body_list를 담고 있는 것을 고릅니다.
+  const tabPanes = [...summary.querySelectorAll('.tab_content.show')];
+  const activeTab = tabPanes.find((t) => t.querySelector('.body_list')) || summary;
+  return [...activeTab.querySelectorAll('.body_list')];
+}
+
+// 행 하나 = <div class="body_list"><div class="list_txt">옵션</div><div class="list_txt">가격</div>
+//            <div class="list_txt is_active">날짜</div></div> (각 list_txt 안의 <span>에 실제 텍스트)
+// 몇 번째 list_txt가 날짜인지 가정하지 않고, 날짜처럼 생긴 텍스트를 직접 찾습니다.
+function getRowDateText(row) {
+  for (const span of row.querySelectorAll('.list_txt span')) {
+    const t = span.textContent.trim();
+    if (/^\d+\s*(초|분|시간|일)\s*전$/.test(t) || /^방금/.test(t) || /^\d{2}\/\d{2}\/\d{2}$/.test(t)) {
+      return t;
+    }
+  }
+  return '';
+}
+
+// 실측 확인(2026-08-20, capture-phase 'scroll' 리스너로 실제 이벤트 타깃을 직접 캡처):
+// 이 드로어는 position:fixed라 window 스크롤과 무관하고(sentinel이 window.scrollBy 후에도
+// 화면에서 전혀 안 움직임, 실측 확인), .click()/WheelEvent 둘 다 무반응이었습니다.
+// 진짜 스크롤이 일어나는 요소는 드로어 내부의 `.drawer__content`(class="drawer__content")
+// 하나뿐입니다 - 사용자가 실제로 마우스 휠을 굴렸을 때 이 요소에서만 native 'scroll'
+// 이벤트가 발생하는 걸 확인했습니다. 이 요소는 sentinel의 DOM 조상 체인에는 없었는데도
+// (렌더링 구조가 분리돼 있는 것으로 보임) 실제 스크롤 담당은 이 요소가 맞습니다.
+// `.drawer__content`는 같은 클래스명이 페이지에 여러 개(다른 드로어용) 있을 수 있어
+// isRendered로 화면에 실제 보이는 것만 고릅니다.
+function findDrawerContent() {
+  return [...document.querySelectorAll('.drawer__content')].find(isRendered) || null;
+}
+
+function triggerLoadMoreScroll() {
+  const content = findDrawerContent();
+  if (!content) return false;
+  // scrollTop을 직접 바꾸면(사람이 휠로 바꾼 것과 마찬가지로) 브라우저가 native 'scroll'
+  // 이벤트를 그대로 발생시키므로, 사이트가 그 이벤트를 듣고 다음 페이지를 로드합니다.
+  content.scrollTop = content.scrollHeight;
+  return true;
+}
+
+// 집계하려고 맨 아래까지 계속 내려놨던 걸, 끝나면 다시 맨 위로 돌려놓습니다 - 안 그러면
+// "최근 시세" 옆 거래량 표시(패널 상단)가 사용자 눈에는 화면 밖으로 스크롤된 채로 남아
+// 안 보이는 상태가 됩니다(실측 확인: 스크롤 안 내렸으면 scrollTop이 이미 0이라 no-op).
+function resetDrawerScrollToTop() {
+  const content = findDrawerContent();
+  if (content) content.scrollTop = 0;
+}
+
+const TRADE_VOLUME_DEBUG = false; // 문제 생기면 true로 (2026-08-20: 안정화 확인 완료)
+
+// 스크롤로 30일 이전 데이터가 나오거나 더 불러올 게 없을 때까지 계속 내리면서,
+// 화면에 새로 나타난 행만 누적 집계합니다.
+//
+// 행을 "인덱스 기준"(몇 번째까지 이미 셌는지)으로 추적하는 이유: 처음엔 날짜+옵션+가격을
+// 합친 내용 기반 키로 중복을 걸렀는데, 오래된 행은 날짜가 "26/08/09" 같은 일 단위로만
+// 표시돼서 같은 날 같은 옵션+가격 거래가 여러 건이면 서로 다른 진짜 거래인데도 같은 키로
+// 뭉개지는 버그가 실측으로 확인됐습니다(50건 중 11건 유실). 이 목록은 스크롤할 때마다
+// 뒤에 새 행이 append되기만 하고(윈도잉으로 앞이 사라지는 게 아니라 클릭이 그냥 무반응이었던
+// 것뿐) 순서가 안 바뀌는 것으로 보이므로, 이미 처리한 인덱스는 다시 안 보면 충돌 걱정 없이
+// 정확히 셀 수 있습니다.
+async function collectTradeVolumeWithin30Days(summary) {
+  const cutoff = Date.now() - TRADE_VOLUME_DAYS * 86400000;
+  const maxAttempts = 150;
+  let count = 0;
+  let processed = 0; // rows[0..processed-1]은 이미 센 행
+
+  // 패널이 막 열린 직후엔 사이트 자체 데이터 로딩이 아직 안 끝났을 수 있어 살짝 대기 후 시작
+  await sleep(400);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const rows = getTradeVolumeRows(summary);
+    if (rows.length === 0) {
+      if (TRADE_VOLUME_DEBUG) console.log(`[KH] attempt ${attempt}: rows=0, 대기`);
+      await sleep(300);
+      continue;
+    }
+
+    let reachedCutoff = false;
+    for (; processed < rows.length; processed++) {
+      const date = parseTradeRowDate(getRowDateText(rows[processed]));
+      if (date && date.getTime() < cutoff) {
+        reachedCutoff = true;
+        break;
+      }
+      if (date) count += 1;
+    }
+
+    if (TRADE_VOLUME_DEBUG) {
+      console.log(`[KH] attempt ${attempt}: rows=${rows.length}, processed=${processed}, count=${count}`);
+    }
+
+    if (reachedCutoff) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 30일 이전 도달');
+      break;
+    }
+
+    const beforeLength = rows.length;
+    const triggered = triggerLoadMoreScroll();
+    if (!triggered) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: drawer__content 못 찾음');
+      break;
+    }
+    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 스크롤 트리거 (attempt=${attempt})`);
+
+    const waitStart = Date.now();
+    let grew = false;
+    while (Date.now() - waitStart < 3000) {
+      await sleep(150);
+      triggerLoadMoreScroll(); // scrollHeight가 계속 늘어날 수 있어 매번 다시 맨 끝까지 스크롤
+      if (getTradeVolumeRows(summary).length > beforeLength) {
+        grew = true;
+        break;
+      }
+    }
+    if (!grew) {
+      if (TRADE_VOLUME_DEBUG) console.log('[KH] stop: 스크롤해도 행 안 늘어남');
+      break;
+    }
+  }
+
+  if (TRADE_VOLUME_DEBUG) {
+    console.log(`[KH] collectTradeVolumeWithin30Days 종료, count=${count}, processed=${processed}`);
+  }
+  return count;
+}
+
+function ensureTradeVolumeDisplay(titleContainer) {
+  let el = titleContainer.querySelector('.' + TRADE_VOLUME_CLASS);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = TRADE_VOLUME_CLASS;
+    titleContainer.appendChild(el);
+  }
+  return el;
+}
+
+// 페이지 여기저기(유사 상품 등)에 비슷한 거래 내역 위젯이 여러 개 있을 수 있어서,
+// 값이 오락가락하는 걸 막기 위해 "진짜 드로어"(.product-transaction-history-drawer)를
+// 먼저 명확하게 찾고, 그 안에서만 .sales_title_container/행을 찾습니다.
+//
+// 주의: 이 패널은 position: fixed라서 offsetParent가 항상 null입니다(스펙상 원래 그럼) —
+// offsetParent로 "보이는지"를 판단하면 안 되고, getClientRects()로 확인해야 합니다.
+function isRendered(el) {
+  return !!el && el.getClientRects().length > 0;
+}
+
+const DRAWER_SELECTOR = '.product-transaction-history-drawer';
+
+// 같은 class를 쓰는 요소가 여러 개(숨겨진 것 포함) 있을 수 있어서, "화면에 실제로 크게
+// 보이는" 후보를 고릅니다 (진짜 열린 드로어는 화면의 상당 부분을 차지함).
+function findTradeHistoryDrawer() {
+  const candidates = [...document.querySelectorAll(DRAWER_SELECTOR)];
+  let best = null;
+  let bestArea = 0;
+  for (const el of candidates) {
+    const rect = el.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    if (TRADE_VOLUME_DEBUG) {
+      console.log(`[KH] drawer 후보: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`);
+    }
+    if (area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  }
+  return bestArea > 10000 ? best : null; // 최소 크기 미만이면 진짜 드로어가 아닌 것으로 취급
+}
+
+function findTitleContainerInDrawer(drawer) {
+  const el = drawer?.querySelector('.sales_title_container');
+  return isRendered(el) ? el : null;
+}
+
+// 이 패널엔 "체결 거래/판매 입찰/구매 입찰" 3개 탭이 있는데, 거래량 기능은 "체결 거래"
+// 전용입니다(README 참고) - 실측 확인: 표준 ARIA 탭 패턴(role="tab" + aria-selected)이고
+// 활성 탭의 링크 텍스트는 "체결"/"판매"/"구매"로 줄여서 들어있습니다. 예전엔 이 확인이
+// 없어서 판매 입찰/구매 입찰 탭으로 바꿔도 그 탭의 행 목록을 대상으로 그대로 동작하며
+// 자동 스크롤을 계속 내리는 문제가 있었습니다(사용자 확인).
+function isTransactionTabActive(drawer) {
+  // 실측 확인(2026-08-20): li[aria-selected="true"]로 찾으면 실제 탭 전환을 안 따라가는
+  // "낡은" 중복 탭바 인스턴스가 있어서(항상 "체결 거래"에 고정된 채 rendered=true로 잡힘)
+  // 판매 입찰/구매 입찰 탭으로 바꿔도 계속 "체결 거래"로 오판했습니다. 대신 저희가
+  // 행을 읽을 때 이미 쓰고 있는 것과 똑같은 기준(getTradeVolumeRows와 동일한
+  // ".tab_content.show 중 .body_list를 담고 있는 것" 판정)으로 활성 패널을 찾아서,
+  // 두 함수의 판단이 항상 일치하게 맞춥니다.
+  const tabPanes = [...drawer.querySelectorAll('.tab_content.show')];
+  const activePanel = tabPanes.find((t) => t.querySelector('.body_list'));
+  if (!activePanel?.id) return false;
+
+  // 탭 버튼(li) 자체는 드로어의 DOM 자식이 아닐 수 있어서(위와 같은 이유) 문서 전체에서 찾습니다.
+  const tab = document.querySelector(`li[role="tab"][aria-controls="${activePanel.id}"]`);
+  const label = tab?.querySelector('.item_link')?.textContent.trim();
+  return !!label && label.startsWith('체결');
+}
+
+let isAutoPaginatingTradeVolume = false;
+let tradeVolumeRecomputeTimer = null;
+// 이 드로어에서 이미 성공적으로 계산을 마쳤으면(= 이 값과 findTradeHistoryDrawer()가
+// 돌려주는 요소가 같으면) 더 이상 자동으로 재계산하지 않습니다. 실측 확인(2026-08-20):
+// 드로어 안에서 뭔가 바뀔 때마다(사용자가 직접 스크롤해서 과거 내역을 불러오는 것도
+// 포함) 매번 재계산이 트리거돼서, 사용자가 직접 스크롤하는 도중에도 저희 계산 로직이
+// 끼어들어 맨 위로 강제로 되돌리는 문제가 있었습니다. 드로어가 새로 열리면(Vue가 새
+// 요소를 만들어서 이 값과 다시 달라짐) 자동으로 다시 계산됩니다.
+let lastComputedDrawer = null;
+
+async function computeAndDisplayTradeVolume() {
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] computeAndDisplayTradeVolume 시작');
+  const summary = findTradeHistoryDrawer();
+  if (!summary) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 드로어 못 찾음');
+    return;
+  }
+  if (!isTransactionTabActive(summary)) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 체결 거래 탭이 아님');
+    // 판매 입찰/구매 입찰 탭으로 바뀌었으면 이전에 표시해둔 거래량 안내도 지우고,
+    // "이미 계산함" 상태도 초기화합니다 - 체결 거래 탭으로 다시 돌아오면 새로 계산되게.
+    summary.querySelector('.' + TRADE_VOLUME_CLASS)?.remove();
+    lastComputedDrawer = null;
+    return;
+  }
+  // 표시 요소가 실제로 남아있는지도 같이 확인합니다 - 사용자가 옵션(사이즈)을 바꾸면
+  // 사이트가 이 제목 영역을 통째로 다시 그리면서 저희가 넣어둔 표시가 사라지는데
+  // (실측 확인, 2026-08-20), lastComputedDrawer만 보면 드로어 자체는 그대로라 "이미
+  // 계산함"으로 오판해서 다시 안 채워지고 있었습니다. 표시가 사라졌으면(=옵션이 바뀐
+  // 것으로 추정) 재계산을 허용하고, 남아있으면(=사용자가 그냥 스크롤 중) 그대로
+  // 건너뜁니다.
+  if (lastComputedDrawer === summary && summary.querySelector('.' + TRADE_VOLUME_CLASS)) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: 이미 이 드로어에서 계산 완료(표시 남아있음)');
+    return;
+  }
+  const titleContainer = findTitleContainerInDrawer(summary);
+  if (!titleContainer) {
+    if (TRADE_VOLUME_DEBUG) console.log('[KH] 중단: titleContainer 못 찾음');
+    return;
+  }
+
+  const display = ensureTradeVolumeDisplay(titleContainer);
+  display.textContent = `최근 ${TRADE_VOLUME_DAYS}일 거래량 계산 중...`;
+
+  isAutoPaginatingTradeVolume = true;
+  try {
+    const count = await collectTradeVolumeWithin30Days(summary);
+    resetDrawerScrollToTop();
+    if (TRADE_VOLUME_DEBUG) console.log(`[KH] 최종 count=${count}`);
+    display.innerHTML = `최근 ${TRADE_VOLUME_DAYS}일 거래량 <b>${count.toLocaleString()}건</b>`;
+    lastComputedDrawer = summary; // 성공 - 이 드로어에선 더 이상 자동 재계산 안 함(사용자 스크롤 방해 방지)
+  } catch (err) {
+    resetDrawerScrollToTop();
+    console.warn('[Kream Helper] 거래량 계산 실패:', err);
+    display.textContent = '거래량 계산 실패';
+  } finally {
+    // display.innerHTML 갱신 자체가 감시 중인 DOM 변화로 잡혀서 바로 재계산이 또 예약되는
+    // 무한루프가 있었습니다. MutationObserver 콜백(마이크로태스크)이 그 변화를 처리하고 지나갈
+    // 시간을 벌어주기 위해, 플래그를 살짝 늦게(다음 매크로태스크에서) 내립니다.
+    setTimeout(() => {
+      isAutoPaginatingTradeVolume = false;
+    }, 50);
+  }
+}
+
+function scheduleTradeVolumeRecompute() {
+  if (isAutoPaginatingTradeVolume) return; // 우리가 만든 변화는 무시 (무한루프 방지)
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] scheduleTradeVolumeRecompute (400ms 뒤 실행 예정)');
+  clearTimeout(tradeVolumeRecomputeTimer);
+  tradeVolumeRecomputeTimer = setTimeout(computeAndDisplayTradeVolume, 400);
+}
+
+// 드로어를 닫았다 다시 열면 Vue가 이전 요소를 버리고 새로 만드는 것으로 보여서,
+// 한 번 찾은 드로어만 계속 감시하면 재생성됐을 때 못 따라갑니다. 그래서 document 전체를
+// (가볍게, class 속성 변화는 안 보고) 계속 지켜보다가, "지금 찾히는 진짜 드로어"가
+// 마지막으로 감시하던 것과 다르면 그쪽으로 감시 대상을 옮깁니다.
+let tradeVolumeDrawerObserver = null;
+let currentObservedDrawer = null;
+
+function ensureTradeVolumeObserverAttached() {
+  const drawer = findTradeHistoryDrawer();
+  if (!drawer || drawer === currentObservedDrawer) return;
+
+  tradeVolumeDrawerObserver?.disconnect();
+  currentObservedDrawer = drawer;
+  tradeVolumeDrawerObserver = new MutationObserver(scheduleTradeVolumeRecompute);
+  tradeVolumeDrawerObserver.observe(drawer, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+
+  if (TRADE_VOLUME_DEBUG) console.log('[KH] 새 드로어 감시 시작');
+  scheduleTradeVolumeRecompute();
+}
+
+const tradeVolumeBodyObserver = new MutationObserver(ensureTradeVolumeObserverAttached);
+tradeVolumeBodyObserver.observe(document.body, { childList: true, subtree: true });
+
+setInterval(ensureTradeVolumeObserverAttached, 1000); // SPA로 상품 페이지에 새로 들어왔을 때도 잡히도록

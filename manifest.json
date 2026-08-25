@@ -31,11 +31,6 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://kream.co.kr/products/*"],
-      "js": ["product-page.js"],
-      "run_at": "document_idle"
     }
   ],
   "options_page": "options.html"
